@@ -1,0 +1,94 @@
+{
+  "name": "antigravity-remote-ssh-proxy",
+  "displayName": "Antigravity Remote SSH Proxy",
+  "description": "One-click toggleable proxy and network acceleration for Antigravity IDE remote development.",
+  "version": "1.0.0",
+  "publisher": "xuarehere",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuarehere/antigravity-remote-ssh-proxy"
+  },
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "extensionKind": [
+    "workspace",
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "antigravityRemoteProxy.toggle",
+        "title": "Antigravity 代理: 切换开启/关闭",
+        "category": "Antigravity Proxy"
+      },
+      {
+        "command": "antigravityRemoteProxy.enable",
+        "title": "Antigravity 代理: 开启 (ON)",
+        "category": "Antigravity Proxy"
+      },
+      {
+        "command": "antigravityRemoteProxy.disable",
+        "title": "Antigravity 代理: 关闭 (OFF - 纯直连)",
+        "category": "Antigravity Proxy"
+      },
+      {
+        "command": "antigravityRemoteProxy.status",
+        "title": "Antigravity 代理: 查看状态",
+        "category": "Antigravity Proxy"
+      },
+      {
+        "command": "antigravityRemoteProxy.diagnose",
+        "title": "Antigravity 代理: 运行网络诊断",
+        "category": "Antigravity Proxy"
+      },
+      {
+        "command": "antigravityRemoteProxy.setupRemote",
+        "title": "Antigravity 代理: 自动配置远端环境",
+        "category": "Antigravity Proxy"
+      }
+    ],
+    "configuration": {
+      "title": "Antigravity Remote Proxy",
+      "properties": {
+        "antigravityRemoteProxy.proxyPort": {
+          "type": "number",
+          "default": 7897,
+          "description": "本地通过 SSH 反向隧道转发到远端的代理端口 (默认 7897)"
+        },
+        "antigravityRemoteProxy.autoSetup": {
+          "type": "boolean",
+          "default": true,
+          "description": "连接到远程服务器时自动检测并部署必要组件"
+        },
+        "antigravityRemoteProxy.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "在底部状态栏常驻显示代理状态与切换按钮"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "compile": "tsc --noEmit && node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production && npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.20.2",
+    "typescript": "^5.3.3"
+  }
+}

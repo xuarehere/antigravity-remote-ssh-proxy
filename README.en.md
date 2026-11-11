@@ -1,8 +1,12 @@
-# Antigravity Remote SSH Proxy Manager
+# Antigravity Remote SSH Proxy (ATP)
 
 <div align="center">
 
-**Lightweight, Secure, and Fully Isolated Network Acceleration & One-Click Toggle for Antigravity IDE Remote Development**
+<img src="./resources/icon.png" width="128" />
+
+# Antigravity Remote SSH Proxy Extension
+
+**Plug & Play · Status Bar One-Click Toggle · 100% Isolated · Zero Pollution**
 
 [English](./README.en.md) · [简体中文](./README.md)
 
@@ -10,101 +14,65 @@
 
 ---
 
-## 📌 Background & Pain Points
+## 💡 Why this extension?
 
-When using **Antigravity IDE** for Remote-SSH development, the AI core and backend language servers (`agy`) run directly on the remote workstation. In environments where Google AI services (`aicode.googleapis.com` / `play.googleapis.com`) are restricted, developers commonly encounter:
+When using **Antigravity IDE** for Remote-SSH development on Linux workstations, the AI core and Language Server (`agy`) execute directly on the remote machine. In regions where Google AI endpoints (`aicode.googleapis.com` / `play.googleapis.com`) are restricted, developers face:
 1. **Regional Restrictions**: `403 Forbidden: Your location is not eligible for this service at this time. Detected location: CN.`
 2. **Timeouts & Connection Resets**: `TLS handshake timeout` or `connection reset by peer`.
-3. **Port Collisions**: If the remote server already runs a local proxy on 7897, standard SSH `RemoteForward` fails with `remote port forwarding failed`.
-4. **Environment Pollution Risks**: Hardcoding `http_proxy` in `~/.bashrc` pollutes regular shells, training scripts, Docker, and affects other developers.
+3. **Environment Pollution Risks**: Hardcoding proxy settings in `~/.bashrc` pollutes terminal sessions, model training, and cluster services.
+4. **Conflicting Development Needs**: Sometimes AI assistance is needed; other times, internal cluster training or local LLM inference strictly forbids proxy usage.
 
-This project delivers a **complete, closed-loop solution**:
-- **Dedicated Tunnel**: Direct connection to your local high-speed proxy via SSH reverse port forwarding.
-- **Dynamic Scope**: Injects proxy variables exclusively into Antigravity IDE processes, **100% preserving the remote OS environment**.
-- **One-Click Hot Reload**: Toggle between [Proxy ON] and [Pure Direct OFF] in 1 second without restarting the IDE window.
-- **Clean Regular SSH**: Standard `ssh user@host` connections remain completely native, warning-free, and unpolluted.
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-flowchart TD
-    subgraph Local["Local Client (Windows / macOS)"]
-        L1["Local Proxy (e.g. Clash Verge 7897)<br>Gemini / Google AI Eligible Node"]
-        L2["One-Click Controller (manage-proxy.ps1)"]
-    end
-
-    subgraph Tunnel["SSH Reverse Tunnel"]
-        T["SSH RemoteForward: 127.0.0.1:7897"]
-    end
-
-    subgraph Remote["Remote Server (Linux Workstation)"]
-        R1["Control Script (agy-proxy on / off / toggle / status)"]
-        R2["State File (~/.antigravity-ide-server/proxy.disabled)"]
-        R3["Antigravity AI Core (agy)<br>• ON: Routes through 127.0.0.1:7897<br>• OFF: Unsets all proxy, 100% direct connection"]
-        R4["User Terminal / Training Jobs / Native Services<br>(Completely isolated, zero environment pollution)"]
-    end
-
-    L1 <==>|SSH Reverse Tunnel| T
-    L2 -.->|Remote Control| R1
-    T -->|Dynamic Detection| R3
-    R1 -->|Set / Remove| R2
-    R2 -->|Sub-second Hot Reload| R3
-    R4 -.->|Physical Isolation| Remote
-```
+**This extension achieves true Plug & Play and seamless state management**:
+- **One-Click Status Bar Toggle**: A resident status bar button allows instant switching between [Proxy ON] and [Pure Direct OFF] in 1 second!
+- **Two Distinct Modes**:
+  - **ON**: Routes through local 7897 SSH reverse tunnel for high-speed AI access.
+  - **OFF**: Unsets all proxy variables; **100% direct connection when remote has no proxy**.
+- **Auto Self-Deployment**: Automatically provisions required components when connecting to any new remote server.
+- **Clean Regular SSH Guarantee**: Native `ssh user@host` commands remain completely unaffected, warning-free, and unpolluted.
 
 ---
 
-## 🚀 Quick Start
+## 📸 Key Features
 
-### 1. Inside Remote Antigravity IDE Window (Recommended)
+### 1. Status Bar Item
+Resident on the bottom status bar:
+- 🟢 **`$(plug) AI代理: 开启 (7897)`**: Active proxy tunnel; click to disable.
+- ⚪ **`$(circle-slash) AI代理: 纯直连`**: Pure direct connection; click to enable.
+- 🟡 **`$(warning) AI代理: 隧道未通`**: Port 7897 unreachable; click to view troubleshooting.
 
-#### Option A: IDE Command Palette Task
-Press `Ctrl + Shift + P` $\to$ type `Tasks: Run Task` $\to$ select:
-- **`Antigravity 代理: 切换开启/关闭`** (One-click toggle)
-- **`Antigravity 代理: 查看状态`** (Check status)
-- **`Antigravity 代理: 强制开启 (ON)`** (Force Enable)
-- **`Antigravity 代理: 强制关闭 (OFF - 纯直连)`** (Force Disable)
+### 2. Command Palette (`Ctrl + Shift + P`)
+- `Antigravity 代理: 切换开启/关闭 (Toggle Proxy)`
+- `Antigravity 代理: 开启 (Enable Proxy)`
+- `Antigravity 代理: 关闭 (Disable Proxy)`
+- `Antigravity 代理: 运行网络诊断 (Run Diagnostics)`
+- `Antigravity 代理: 自动配置远端环境 (Setup Remote)`
 
-#### Option B: Integrated Terminal Command
+### 3. Integrated Terminal Commands
 ```bash
-agy-proxy on      # Enable proxy (Hot-reloaded in 1s, no window reload needed)
-agy-proxy off     # Disable proxy (Reverts to pure direct connection)
+agy-proxy on      # Enable proxy (Hot-reloaded in 1s)
+agy-proxy off     # Disable proxy (Reverts to direct connection)
 agy-proxy toggle  # Toggle between ON and OFF
-agy-proxy status  # Check current proxy and tunnel status
+agy-proxy status  # Check status & tunnel reachability
 ```
 
 ---
 
-### 2. From Local Windows Client
+## 📦 Installation
 
-```powershell
-# Toggle proxy on target host
-& ".\local\manage-proxy.ps1" -HostName "10.192.41.183-zbz-3090" -Action toggle
+### Method 1: Install from VSIX (Plug & Play)
+1. Download `antigravity-remote-ssh-proxy-1.0.0.vsix` from Releases or repo root.
+2. In Antigravity IDE, go to Extensions (`Ctrl + Shift + X`).
+3. Click `...` in the top right $\to$ **`Install from VSIX...`**.
+4. Select the `.vsix` file.
+5. Connect to your remote workstation and enjoy one-click proxy control!
 
-# Check target host status
-& ".\local\manage-proxy.ps1" -HostName "10.192.41.183-zbz-3090" -Action status
+### Method 2: Build from Source
+```bash
+git clone https://github.com/xuarehere/antigravity-remote-ssh-proxy.git
+cd antigravity-remote-ssh-proxy
+npm install
+npm run package
 ```
-
----
-
-### 3. Deploy to Any New Remote Server (Future Extensibility)
-
-Deploy to any new SSH host (e.g., `10.3.3.107`, `10.192.41.70`) with a single command from your local machine:
-
-```powershell
-& ".\local\deploy-agy-proxy.ps1" -TargetHost "<SSH_Host_Name_or_Alias>"
-```
-
----
-
-## 📊 Mode Comparison
-
-| Mode | Environment Variable `HTTP_PROXY` | Remote Server Behavior Without Proxy | Ideal Use Cases |
-| :--- | :--- | :--- | :--- |
-| **ON** | `http://127.0.0.1:7897` | **Routes via local high-speed tunnel** | AI completion/chat, accessing external packages |
-| **OFF** | **Unset (Empty)** | **100% Direct Connection via physical NIC** | Internal cluster jobs, heavy data transfers, local LLMs |
 
 ---
 
