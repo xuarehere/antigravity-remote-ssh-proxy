@@ -5,7 +5,7 @@ PROXY_PORT="7897"
 [ -f "$CONF_FILE" ] && source "$CONF_FILE"
 
 DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
-if [ ! -f "$DISABLED_FLAG" ] && nc -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
+if [ ! -f "$DISABLED_FLAG" ] && nc -w 1 -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
     export http_proxy="http://${PROXY_HOST}:${PROXY_PORT}"
     export https_proxy="http://${PROXY_HOST}:${PROXY_PORT}"
     export HTTP_PROXY="http://${PROXY_HOST}:${PROXY_PORT}"

@@ -58,7 +58,7 @@ case "$1" in
         else
             echo " Status: [ENABLED / ON]"
             echo " Target: \${PROXY_HOST}:\${PROXY_PORT} (Local reverse tunnel)"
-            if nc -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
+            if nc -w 1 -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
                 echo " Tunnel: OK (Port \${PROXY_PORT} is reachable)"
             else
                 echo " Tunnel: WARN (Port \${PROXY_PORT} is not listening, check SSH RemoteForward)"
@@ -78,7 +78,7 @@ PROXY_PORT="7897"
 [ -f "$CONF_FILE" ] && source "$CONF_FILE"
 
 DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
-if [ ! -f "$DISABLED_FLAG" ] && nc -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
+if [ ! -f "$DISABLED_FLAG" ] && nc -w 1 -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
     export http_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
     export https_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
     export HTTP_PROXY="http://\${PROXY_HOST}:\${PROXY_PORT}"
