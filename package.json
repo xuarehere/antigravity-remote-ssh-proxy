@@ -1,8 +1,8 @@
 {
   "name": "antigravity-remote-ssh-proxy",
   "displayName": "Antigravity Remote SSH Proxy",
-  "description": "One-click toggleable proxy and network acceleration for Antigravity IDE remote development.",
-  "version": "1.0.0",
+  "description": "Visual UI configuration, one-click toggleable proxy and network acceleration for Antigravity IDE remote development.",
+  "version": "1.1.0",
   "publisher": "xuarehere",
   "repository": {
     "type": "git",
@@ -26,6 +26,16 @@
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "antigravityRemoteProxy.openSettings",
+        "title": "Antigravity 代理: 打开配置与测试面板 (Settings & Test)",
+        "category": "Antigravity Proxy"
+      },
+      {
+        "command": "antigravityRemoteProxy.menu",
+        "title": "Antigravity 代理: 弹出快捷操作菜单",
+        "category": "Antigravity Proxy"
+      },
       {
         "command": "antigravityRemoteProxy.toggle",
         "title": "Antigravity 代理: 切换开启/关闭",
@@ -60,10 +70,20 @@
     "configuration": {
       "title": "Antigravity Remote Proxy",
       "properties": {
+        "antigravityRemoteProxy.proxyHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "本地通过 SSH 反向隧道转发到远端的代理主机 (默认 127.0.0.1)"
+        },
         "antigravityRemoteProxy.proxyPort": {
           "type": "number",
           "default": 7897,
           "description": "本地通过 SSH 反向隧道转发到远端的代理端口 (默认 7897)"
+        },
+        "antigravityRemoteProxy.remoteHost": {
+          "type": "string",
+          "default": "10.192.41.183-zbz-3090",
+          "description": "默认远程 SSH 服务器 Host 别名 (如 10.192.41.183-zbz-3090)"
         },
         "antigravityRemoteProxy.autoSetup": {
           "type": "boolean",

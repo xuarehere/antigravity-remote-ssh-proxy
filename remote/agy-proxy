@@ -1,5 +1,10 @@
 #!/bin/bash
 # Antigravity IDE Remote Proxy Control Script
+CONF_FILE="$HOME/.antigravity-ide-server/proxy.conf"
+PROXY_HOST="127.0.0.1"
+PROXY_PORT="7897"
+[ -f "$CONF_FILE" ] && source "$CONF_FILE"
+
 DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
 
 restart_agy() {
@@ -13,7 +18,7 @@ case "$1" in
         rm -f "$DISABLED_FLAG"
         echo "============================================="
         echo " [OK] Antigravity Proxy: ENABLED [ON]"
-        echo " Mode: Routes via local 7897 reverse tunnel"
+        echo " Target: ${PROXY_HOST}:${PROXY_PORT} (Local reverse tunnel)"
         echo " Reloading AI core service..."
         restart_agy
         echo " Reload complete! AI network is now ACTIVE."
@@ -24,7 +29,7 @@ case "$1" in
         echo "============================================="
         echo " [OFF] Antigravity Proxy: DISABLED [OFF]"
         echo " Mode: Pure Direct Connection (No proxy variables)"
-        echo " Note: 100% direct connection when 183 has no proxy"
+        echo " Note: 100% direct connection when remote has no proxy"
         echo " Reloading AI core service..."
         restart_agy
         echo " Reload complete! Proxy completely detached."
@@ -44,11 +49,11 @@ case "$1" in
             echo " Mode: Pure Direct Connection (zero proxy injected)"
         else
             echo " Status: [ENABLED / ON]"
-            echo " Target: 127.0.0.1:7897 (Local reverse tunnel)"
-            if nc -z 127.0.0.1 7897 2>/dev/null; then
-                echo " Tunnel: OK (Port 7897 is reachable)"
+            echo " Target: ${PROXY_HOST}:${PROXY_PORT} (Local reverse tunnel)"
+            if nc -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
+                echo " Tunnel: OK (Port ${PROXY_PORT} is reachable)"
             else
-                echo " Tunnel: WARN (Port 7897 is not listening, check SSH RemoteForward)"
+                echo " Tunnel: WARN (Port ${PROXY_PORT} is not listening, check SSH RemoteForward)"
             fi
         fi
         echo "============================================="

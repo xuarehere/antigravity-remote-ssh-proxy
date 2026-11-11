@@ -2,6 +2,25 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { ProxyController } from './proxyController';
 
+export interface DiagnosticStep {
+  name: string;
+  status: 'pending' | 'success' | 'warning' | 'error';
+  latencyMs?: number;
+  message: string;
+  detail?: string;
+}
+
+export interface DiagnosticReport {
+  timestamp: string;
+  proxyHost: string;
+  proxyPort: number;
+  isEnabled: boolean;
+  tunnelReachable: boolean;
+  steps: DiagnosticStep[];
+  overallStatus: 'success' | 'warning' | 'error';
+  summary: string;
+}
+
 export class DiagnosticsRunner {
   private controller: ProxyController;
   private outputChannel: vscode.OutputChannel;
@@ -11,57 +30,165 @@ export class DiagnosticsRunner {
     this.outputChannel = vscode.window.createOutputChannel('Antigravity Proxy Diagnostics');
   }
 
+  public async testConnection(host?: string, port?: number): Promise<DiagnosticReport> {
+    const targetHost = (host || this.controller.getProxyHost() || '127.0.0.1').trim();
+    const targetPort = Number(port) || this.controller.getProxyPort() || 7897;
+    const isEnabled = this.controller.isEnabled();
+
+    const steps: DiagnosticStep[] = [];
+    let tunnelReachable = false;
+
+    // Step 1: Test tunnel port TCP handshake
+    const tunnelStart = Date.now();
+    try {
+      tunnelReachable = await this.controller.checkPort(targetPort, targetHost, 2000);
+      const tunnelLatency = Date.now() - tunnelStart;
+
+      if (tunnelReachable) {
+        steps.push({
+          name: `反向隧道端口 (${targetHost}:${targetPort})`,
+          status: 'success',
+          latencyMs: tunnelLatency,
+          message: `连通正常 (TCP 握手耗时 ${tunnelLatency}ms)`
+        });
+      } else {
+        steps.push({
+          name: `反向隧道端口 (${targetHost}:${targetPort})`,
+          status: 'error',
+          latencyMs: tunnelLatency,
+          message: `无法建立 TCP 握手！请检查本地代理工具是否启动，且 SSH 是否配置了 RemoteForward ${targetPort} 127.0.0.1:${targetPort}`
+        });
+      }
+    } catch (err: any) {
+      steps.push({
+        name: `反向隧道端口 (${targetHost}:${targetPort})`,
+        status: 'error',
+        message: `检测异常: ${err.message}`
+      });
+    }
+
+    // Proxy argument for curl
+    const proxyArg = tunnelReachable ? `-x http://${targetHost}:${targetPort}` : '';
+
+    // Step 2: Test aicode.googleapis.com
+    const aiStep = await this.probeUrl(
+      'Google AI 核心接口 (aicode.googleapis.com)',
+      'https://aicode.googleapis.com',
+      proxyArg
+    );
+    steps.push(aiStep);
+
+    // Step 3: Test play.googleapis.com/log
+    const playStep = await this.probeUrl(
+      'Google 遥测服务 (play.googleapis.com/log)',
+      'https://play.googleapis.com/log',
+      proxyArg
+    );
+    steps.push(playStep);
+
+    // Compute overall status
+    let overallStatus: 'success' | 'warning' | 'error' = 'success';
+    let summary = '🎉 代理通道畅通，Google AI 接口连通正常！';
+
+    const hasError = steps.some((s) => s.status === 'error');
+    const hasSuccess = steps.some((s) => s.status === 'success');
+
+    if (!tunnelReachable) {
+      overallStatus = 'error';
+      summary = `❌ 反向隧道未连通 (${targetHost}:${targetPort})，请检查本地代理及 SSH 转发。`;
+    } else if (hasError) {
+      if (hasSuccess) {
+        overallStatus = 'warning';
+        summary = '⚠️ 隧道已连通，但部分 Google 服务探测异常，请确认代理节点是否能够访问 Google AI。';
+      } else {
+        overallStatus = 'error';
+        summary = '❌ 无法访问 Google AI 服务，请检查本地代理规则与节点可用性。';
+      }
+    }
+
+    return {
+      timestamp: new Date().toLocaleTimeString(),
+      proxyHost: targetHost,
+      proxyPort: targetPort,
+      isEnabled,
+      tunnelReachable,
+      steps,
+      overallStatus,
+      summary
+    };
+  }
+
+  private probeUrl(name: string, url: string, proxyArg: string): Promise<DiagnosticStep> {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const cmd = `curl -sI -m 6 ${proxyArg} "${url}"`;
+
+      exec(cmd, (error, stdout, stderr) => {
+        const latency = Date.now() - startTime;
+        if (error) {
+          const errMsg = stderr ? stderr.trim() : error.message.trim();
+          resolve({
+            name,
+            status: 'error',
+            latencyMs: latency,
+            message: `请求失败 (${latency}ms): ${errMsg.slice(0, 100)}`
+          });
+          return;
+        }
+
+        const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+        const statusLine = lines[0] || '';
+        const isGoogleESF = stdout.includes('server: ESF') || stdout.includes('Server: ESF') || stdout.includes('200 Connection established');
+
+        if (statusLine.includes('200') || statusLine.includes('404') || statusLine.includes('405') || isGoogleESF) {
+          resolve({
+            name,
+            status: 'success',
+            latencyMs: latency,
+            message: `访问正常 (${statusLine || 'HTTP 200'}, 耗时 ${latency}ms)`
+          });
+        } else if (statusLine.includes('403')) {
+          resolve({
+            name,
+            status: 'error',
+            latencyMs: latency,
+            message: `返回 403 Forbidden（受地域限制阻止，请切换支持 Google AI 的代理节点）`
+          });
+        } else {
+          resolve({
+            name,
+            status: 'warning',
+            latencyMs: latency,
+            message: `返回状态: ${statusLine || '未知'} (${latency}ms)`
+          });
+        }
+      });
+    });
+  }
+
   public async run(): Promise<void> {
     this.outputChannel.clear();
     this.outputChannel.show(true);
-
-    const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
-    const port = config.get<number>('proxyPort', 7897);
-    const enabled = this.controller.isEnabled();
 
     this.log('====================================================');
     this.log(' Antigravity Remote Proxy - 网络连通性诊断报告');
     this.log(` 时间: ${new Date().toLocaleString()}`);
     this.log('====================================================\n');
 
-    this.log(`[1] 代理开关状态: ${enabled ? '【已开启 (ON)】' : '【已关闭 (OFF - 纯直连)】'}`);
+    const report = await this.testConnection();
 
-    // Check tunnel port
-    this.log(`[2] 检查本地 SSH 反向隧道端口 (127.0.0.1:${port})...`);
-    const portReachable = await this.controller.checkPort(port);
-    if (portReachable) {
-      this.log(`    ✓ 端口 127.0.0.1:${port} 正常监听并可连通！`);
-    } else {
-      this.log(`    ✗ 端口 127.0.0.1:${port} 无法连接！`);
-      this.log(`      原因分析: 本地 SSH 未配置 RemoteForward ${port} 127.0.0.1:${port}，或本地代理未开启。`);
+    this.log(`[1] 代理开关: ${report.isEnabled ? '【已开启 (ON)】' : '【已关闭 (OFF - 纯直连)】'}`);
+    this.log(`[2] 代理目标: ${report.proxyHost}:${report.proxyPort}`);
+    this.log(`\n--- 诊断明细 ---`);
+
+    for (const step of report.steps) {
+      const badge = step.status === 'success' ? '✓' : step.status === 'warning' ? '!' : '✗';
+      this.log(` ${badge} ${step.name}: ${step.message}`);
     }
 
-    // Check Google AI API
-    this.log('\n[3] 测试 Google AI API 核心接口响应...');
-    const proxyArg = enabled && portReachable ? `-x http://127.0.0.1:${port}` : '';
-    await this.testEndpoint('https://aicode.googleapis.com', proxyArg);
-    await this.testEndpoint('https://play.googleapis.com/log', proxyArg);
-
     this.log('\n====================================================');
-    this.log(' 诊断完成！');
+    this.log(` 结论: ${report.summary}`);
     this.log('====================================================');
-  }
-
-  private testEndpoint(url: string, proxyArg: string): Promise<void> {
-    return new Promise((resolve) => {
-      const cmd = `curl -sI -m 6 ${proxyArg} "${url}" | head -n 5`;
-      this.log(`    发起请求 -> ${url} ${proxyArg ? `(通过代理 ${proxyArg})` : '(直连)'}`);
-
-      exec(cmd, (error, stdout) => {
-        if (error) {
-          this.log(`    ✗ 请求失败: ${error.message.trim()}`);
-        } else {
-          const firstLine = stdout.split('\n')[0] || '';
-          this.log(`    ✓ 响应成功: ${firstLine.trim()}`);
-        }
-        resolve();
-      });
-    });
   }
 
   private log(message: string): void {

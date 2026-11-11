@@ -40,6 +40,11 @@ export class RemoteDeployer {
       // 2. Write agy-proxy script
       const agyProxyContent = `#!/bin/bash
 # Antigravity IDE Remote Proxy Control Script
+CONF_FILE="$HOME/.antigravity-ide-server/proxy.conf"
+PROXY_HOST="127.0.0.1"
+PROXY_PORT="7897"
+[ -f "$CONF_FILE" ] && source "$CONF_FILE"
+
 DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
 
 restart_agy() {
@@ -53,7 +58,7 @@ case "$1" in
         rm -f "$DISABLED_FLAG"
         echo "============================================="
         echo " [OK] Antigravity Proxy: ENABLED [ON]"
-        echo " Mode: Routes via local 7897 reverse tunnel"
+        echo " Target: \${PROXY_HOST}:\${PROXY_PORT} (Local reverse tunnel)"
         echo " Reloading AI core service..."
         restart_agy
         echo " Reload complete! AI network is now ACTIVE."
@@ -84,11 +89,11 @@ case "$1" in
             echo " Mode: Pure Direct Connection (zero proxy injected)"
         else
             echo " Status: [ENABLED / ON]"
-            echo " Target: 127.0.0.1:7897 (Local reverse tunnel)"
-            if nc -z 127.0.0.1 7897 2>/dev/null; then
-                echo " Tunnel: OK (Port 7897 is reachable)"
+            echo " Target: \${PROXY_HOST}:\${PROXY_PORT} (Local reverse tunnel)"
+            if nc -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
+                echo " Tunnel: OK (Port \${PROXY_PORT} is reachable)"
             else
-                echo " Tunnel: WARN (Port 7897 is not listening, check SSH RemoteForward)"
+                echo " Tunnel: WARN (Port \${PROXY_PORT} is not listening, check SSH RemoteForward)"
             fi
         fi
         echo "============================================="
@@ -120,14 +125,19 @@ esac
         fs.renameSync(this.agyPath, this.agyRealPath);
 
         const agyWrapperContent = `#!/bin/bash
+CONF_FILE="$HOME/.antigravity-ide-server/proxy.conf"
+PROXY_HOST="127.0.0.1"
+PROXY_PORT="7897"
+[ -f "$CONF_FILE" ] && source "$CONF_FILE"
+
 DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
-if [ ! -f "$DISABLED_FLAG" ] && nc -z 127.0.0.1 7897 2>/dev/null; then
-    export http_proxy="http://127.0.0.1:7897"
-    export https_proxy="http://127.0.0.1:7897"
-    export HTTP_PROXY="http://127.0.0.1:7897"
-    export HTTPS_PROXY="http://127.0.0.1:7897"
-    export all_proxy="socks5://127.0.0.1:7897"
-    export ALL_PROXY="socks5://127.0.0.1:7897"
+if [ ! -f "$DISABLED_FLAG" ] && nc -z "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
+    export http_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export https_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export HTTP_PROXY="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export HTTPS_PROXY="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export all_proxy="socks5://\${PROXY_HOST}:\${PROXY_PORT}"
+    export ALL_PROXY="socks5://\${PROXY_HOST}:\${PROXY_PORT}"
     export no_proxy="localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16"
     export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16"
 else
