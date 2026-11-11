@@ -1,0 +1,60 @@
+#!/bin/bash
+# Antigravity IDE Remote Proxy Control Script
+DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
+
+restart_agy() {
+    for p in $(pidof agy agy.real 2>/dev/null); do
+        kill -9 "$p" 2>/dev/null || true
+    done
+}
+
+case "$1" in
+    on|enable)
+        rm -f "$DISABLED_FLAG"
+        echo "============================================="
+        echo " [OK] Antigravity Proxy: ENABLED [ON]"
+        echo " Mode: Routes via local 7897 reverse tunnel"
+        echo " Reloading AI core service..."
+        restart_agy
+        echo " Reload complete! AI network is now ACTIVE."
+        echo "============================================="
+        ;;
+    off|disable)
+        touch "$DISABLED_FLAG"
+        echo "============================================="
+        echo " [OFF] Antigravity Proxy: DISABLED [OFF]"
+        echo " Mode: Pure Direct Connection (No proxy variables)"
+        echo " Note: 100% direct connection when 183 has no proxy"
+        echo " Reloading AI core service..."
+        restart_agy
+        echo " Reload complete! Proxy completely detached."
+        echo "============================================="
+        ;;
+    toggle)
+        if [ -f "$DISABLED_FLAG" ]; then
+            exec "$0" on
+        else
+            exec "$0" off
+        fi
+        ;;
+    status|"")
+        echo "============================================="
+        if [ -f "$DISABLED_FLAG" ]; then
+            echo " Status: [DISABLED / OFF]"
+            echo " Mode: Pure Direct Connection (zero proxy injected)"
+        else
+            echo " Status: [ENABLED / ON]"
+            echo " Target: 127.0.0.1:7897 (Local reverse tunnel)"
+            if nc -z 127.0.0.1 7897 2>/dev/null; then
+                echo " Tunnel: OK (Port 7897 is reachable)"
+            else
+                echo " Tunnel: WARN (Port 7897 is not listening, check SSH RemoteForward)"
+            fi
+        fi
+        echo "============================================="
+        ;;
+    *)
+        echo "Usage: agy-proxy {on|off|toggle|status}"
+        exit 1
+        ;;
+esac

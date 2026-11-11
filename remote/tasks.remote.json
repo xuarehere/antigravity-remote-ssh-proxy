@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Antigravity 代理: 切换开启/关闭",
+            "type": "shell",
+            "command": "$HOME/.antigravity-ide-server/bin/agy-proxy toggle",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Antigravity 代理: 查看状态",
+            "type": "shell",
+            "command": "$HOME/.antigravity-ide-server/bin/agy-proxy status",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Antigravity 代理: 强制开启 (ON)",
+            "type": "shell",
+            "command": "$HOME/.antigravity-ide-server/bin/agy-proxy on",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Antigravity 代理: 强制关闭 (OFF - 纯直连)",
+            "type": "shell",
+            "command": "$HOME/.antigravity-ide-server/bin/agy-proxy off",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        }
+    ]
+}

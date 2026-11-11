@@ -1,0 +1,14 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Editor & IDE files
+.vscode/*
+!.vscode/tasks.json
+!.vscode/settings.json
+
+# Temporary files
+*.bak
+*.tmp
+*.log
+proxy.disabled

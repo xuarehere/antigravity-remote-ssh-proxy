@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "183 远程代理: 切换开启/关闭",
+            "type": "shell",
+            "command": "powershell -ExecutionPolicy Bypass -File C:\\Users\\jyfoo\\.ssh\\manage-proxy.ps1 -HostName 10.192.41.183-zbz-3090 -Action toggle",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "183 远程代理: 查看状态",
+            "type": "shell",
+            "command": "powershell -ExecutionPolicy Bypass -File C:\\Users\\jyfoo\\.ssh\\manage-proxy.ps1 -HostName 10.192.41.183-zbz-3090 -Action status",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "183 远程代理: 强制开启 (ON)",
+            "type": "shell",
+            "command": "powershell -ExecutionPolicy Bypass -File C:\\Users\\jyfoo\\.ssh\\manage-proxy.ps1 -HostName 10.192.41.183-zbz-3090 -Action on",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "183 远程代理: 强制关闭 (OFF - 纯直连)",
+            "type": "shell",
+            "command": "powershell -ExecutionPolicy Bypass -File C:\\Users\\jyfoo\\.ssh\\manage-proxy.ps1 -HostName 10.192.41.183-zbz-3090 -Action off",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        }
+    ]
+}
