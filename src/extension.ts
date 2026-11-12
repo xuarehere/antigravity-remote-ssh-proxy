@@ -27,15 +27,29 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     try {
+      const port = controller.getProxyPort();
+      const host = controller.getProxyHost();
+
+      // 1. Establish reverse tunnel first so that remote downloads or pre-provisioning can use proxy
+      if (controller.isEnabled()) {
+        await controller.getTunnelManager().startTunnel(remoteHost, port, port);
+
+        // Update VS Code internal workspace http.proxy for extension host
+        try {
+          const httpConfig = vscode.workspace.getConfiguration('http');
+          await httpConfig.update('proxy', `http://${host}:${port}`, vscode.ConfigurationTarget.Workspace);
+        } catch {
+          // Ignore
+        }
+      }
+
       await controller.syncStatusFromRemote();
       const isDeployed = await deployer.isDeployed(remoteHost);
       if (!isDeployed) {
-        await deployer.deploy(remoteHost);
+        await deployer.deploy(remoteHost, host, port);
       }
 
       if (controller.isEnabled()) {
-        const port = controller.getProxyPort();
-        await controller.getTunnelManager().startTunnel(remoteHost, port, port);
         // Ensure agy process on remote container is reloaded with proxy
         await controller.restartAgy(remoteHost);
       }
@@ -157,8 +171,16 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('未检测到远程 SSH 主机。');
         return;
       }
-      const ok = await deployer.deploy(remoteHost);
+      const host = controller.getProxyHost();
+      const port = controller.getProxyPort();
+      if (controller.isEnabled()) {
+        await controller.getTunnelManager().startTunnel(remoteHost, port, port);
+      }
+      const ok = await deployer.deploy(remoteHost, host, port);
       if (ok) {
+        if (controller.isEnabled()) {
+          await controller.restartAgy(remoteHost);
+        }
         vscode.window.showInformationMessage('Antigravity 远端代理组件已成功部署！');
         await statusBar.update();
       }
