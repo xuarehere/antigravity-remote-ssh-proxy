@@ -2,7 +2,7 @@
   "name": "antigravity-remote-ssh-proxy",
   "displayName": "Antigravity Remote SSH Proxy",
   "description": "Visual UI configuration, one-click toggleable proxy and network acceleration for Antigravity IDE remote development.",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "publisher": "xuarehere",
   "repository": {
     "type": "git",
@@ -69,6 +69,11 @@
         "command": "antigravityRemoteProxy.restore",
         "title": "Antigravity 代理: 一键彻底复原远程环境 (Clean Restore)",
         "category": "Antigravity Proxy"
+      },
+      {
+        "command": "antigravityRemoteProxy.restartAgy",
+        "title": "Antigravity 代理: 重启 AI 核心服务 (Restart Agy)",
+        "category": "Antigravity Proxy"
       }
     ],
     "configuration": {
@@ -86,8 +91,8 @@
         },
         "antigravityRemoteProxy.remoteHost": {
           "type": "string",
-          "default": "10.192.41.183-zbz-3090",
-          "description": "默认远程 SSH 服务器 Host 别名 (如 10.192.41.183-zbz-3090)"
+          "default": "",
+          "description": "远程主机别名或 SSH 地址（通常插件会自动检测，留空即可；如需手动覆盖可填如 -p 6600 root@10.192.41.183 或别名）"
         },
         "antigravityRemoteProxy.autoSetup": {
           "type": "boolean",

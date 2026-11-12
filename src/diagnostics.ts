@@ -36,11 +36,15 @@ export class DiagnosticsRunner {
     const targetPort = Number(port) || this.controller.getProxyPort() || 7897;
     const isEnabled = this.controller.isEnabled();
     const remoteHost = this.controller.detectRemoteHost();
+    const isRemote = Boolean(remoteHost);
+    const portLabel = isRemote
+      ? `反向隧道端口 (${targetHost}:${targetPort})`
+      : `本地代理端口 (${targetHost}:${targetPort})`;
 
     const steps: DiagnosticStep[] = [];
     let tunnelReachable = false;
 
-    // Step 1: Test tunnel port TCP handshake inside container
+    // Step 1: Test tunnel or local proxy port TCP handshake
     const tunnelStart = Date.now();
     try {
       tunnelReachable = await this.controller.checkPort(targetPort, targetHost, 2000);
@@ -48,22 +52,24 @@ export class DiagnosticsRunner {
 
       if (tunnelReachable) {
         steps.push({
-          name: `反向隧道端口 (${targetHost}:${targetPort})`,
+          name: portLabel,
           status: 'success',
           latencyMs: tunnelLatency,
           message: `连通正常 (TCP 握手耗时 ${tunnelLatency}ms)`
         });
       } else {
         steps.push({
-          name: `反向隧道端口 (${targetHost}:${targetPort})`,
+          name: portLabel,
           status: 'error',
           latencyMs: tunnelLatency,
-          message: `无法建立 TCP 握手！请检查本地代理工具是否启动，且反向隧道进程是否正常运行。`
+          message: isRemote
+            ? `无法建立 TCP 握手！请检查本地代理工具是否启动，且动态 SSH 反向隧道是否正常运行。`
+            : `无法建立 TCP 握手！请检查本地代理工具（如 Clash / v2ray）是否启动并监听 ${targetPort} 端口。`
         });
       }
     } catch (err: any) {
       steps.push({
-        name: `反向隧道端口 (${targetHost}:${targetPort})`,
+        name: portLabel,
         status: 'error',
         message: `检测异常: ${err.message}`
       });
@@ -108,7 +114,9 @@ export class DiagnosticsRunner {
 
     if (!tunnelReachable) {
       overallStatus = 'error';
-      summary = `❌ 反向隧道未连通 (${targetHost}:${targetPort})，请检查本地代理及动态隧道状态。`;
+      summary = isRemote
+        ? `❌ 反向隧道未连通 (${targetHost}:${targetPort})，请检查本地代理及动态隧道状态。`
+        : `❌ 本地代理端口未连通 (${targetHost}:${targetPort})，请检查 Clash 等代理软件是否启动。`;
     } else if (hasError) {
       if (hasSuccess) {
         overallStatus = 'warning';
@@ -138,7 +146,8 @@ export class DiagnosticsRunner {
     proxyArg: string
   ): Promise<DiagnosticStep> {
     const startTime = Date.now();
-    const curlCmd = `curl -sI -m 6 ${proxyArg} "${url}"`;
+    const curlExe = remoteHost ? 'curl' : 'curl.exe';
+    const curlCmd = `${curlExe} -sI -m 6 ${proxyArg} "${url}"`;
 
     if (remoteHost) {
       // Execute curl INSIDE the remote container
@@ -162,7 +171,7 @@ export class DiagnosticsRunner {
     return new Promise((resolve) => {
       exec(curlCmd, (error, stdout, stderr) => {
         const latency = Date.now() - startTime;
-        if (error) {
+        if (error && !stdout.includes('HTTP/')) {
           const errMsg = stderr ? stderr.trim() : error.message.trim();
           resolve({
             name,
@@ -181,9 +190,20 @@ export class DiagnosticsRunner {
   private evaluateCurlOutput(name: string, stdout: string, latency: number): DiagnosticStep {
     const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
     const statusLine = lines[0] || '';
-    const isGoogleESF = stdout.includes('server: ESF') || stdout.includes('Server: ESF') || stdout.includes('200 Connection established') || stdout.includes('HTTPServer2');
+    const isGoogleESF =
+      stdout.includes('server: ESF') ||
+      stdout.includes('Server: ESF') ||
+      stdout.includes('200 Connection established') ||
+      stdout.includes('HTTPServer2') ||
+      stdout.includes('scaffolding on HTTPServer2');
 
-    if (statusLine.includes('200') || statusLine.includes('404') || statusLine.includes('405') || isGoogleESF) {
+    if (
+      statusLine.includes('200') ||
+      statusLine.includes('204') ||
+      statusLine.includes('404') ||
+      statusLine.includes('405') ||
+      isGoogleESF
+    ) {
       return {
         name,
         status: 'success',
@@ -202,7 +222,7 @@ export class DiagnosticsRunner {
         name,
         status: 'warning',
         latencyMs: latency,
-        message: `返回状态: ${statusLine || '未知'} (${latency}ms)`
+        message: `返回状态异常: ${statusLine}`
       };
     }
   }
@@ -210,29 +230,26 @@ export class DiagnosticsRunner {
   public async run(): Promise<void> {
     this.outputChannel.clear();
     this.outputChannel.show(true);
-
-    this.log('====================================================');
-    this.log(' Antigravity Remote Proxy - 网络连通性诊断报告');
-    this.log(` 时间: ${new Date().toLocaleString()}`);
-    this.log('====================================================\n');
+    this.outputChannel.appendLine('========================================');
+    this.outputChannel.appendLine('Antigravity Proxy 网络连通性诊断报告');
+    this.outputChannel.appendLine('========================================');
 
     const report = await this.testConnection();
-
-    this.log(`[1] 代理开关: ${report.isEnabled ? '【已开启 (ON)】' : '【已关闭 (OFF - 纯直连)】'}`);
-    this.log(`[2] 代理目标: ${report.proxyHost}:${report.proxyPort}`);
-    this.log(`\n--- 诊断明细 ---`);
+    const envDesc = this.controller.detectRemoteHost() || 'Windows 本机';
+    this.outputChannel.appendLine(`运行环境: ${envDesc}`);
+    this.outputChannel.appendLine(`测试时间: ${report.timestamp}`);
+    this.outputChannel.appendLine(`代理配置: ${report.proxyHost}:${report.proxyPort}`);
+    this.outputChannel.appendLine(`代理模式: ${report.isEnabled ? '已开启 (ON)' : '纯直连 (OFF)'}`);
+    this.outputChannel.appendLine('');
 
     for (const step of report.steps) {
-      const badge = step.status === 'success' ? '✓' : step.status === 'warning' ? '!' : '✗';
-      this.log(` ${badge} ${step.name}: ${step.message}`);
+      const icon = step.status === 'success' ? '✓' : step.status === 'warning' ? '⚠' : '✗';
+      this.outputChannel.appendLine(`[${icon}] ${step.name}`);
+      this.outputChannel.appendLine(`    状态: ${step.message}`);
     }
 
-    this.log('\n====================================================');
-    this.log(` 结论: ${report.summary}`);
-    this.log('====================================================');
-  }
-
-  private log(message: string): void {
-    this.outputChannel.appendLine(message);
+    this.outputChannel.appendLine('');
+    this.outputChannel.appendLine(`诊断总结: ${report.summary}`);
+    this.outputChannel.appendLine('========================================');
   }
 }

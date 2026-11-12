@@ -164,7 +164,16 @@ export class SettingsWebviewPanel {
     const isEnabled = this._controller.isEnabled();
     const proxyHost = this._controller.getProxyHost();
     const proxyPort = this._controller.getProxyPort();
-    const remoteHost = this._controller.detectRemoteHost() || '本地工作区 (未连接远程 SSH)';
+    const remoteHost = this._controller.detectRemoteHost();
+    const isRemote = Boolean(remoteHost);
+    const envDesc = remoteHost ? `远程容器/主机 (${remoteHost})` : 'Windows 本机 (无需 SSH 隧道)';
+    const envIcon = isRemote ? '🌐' : '💻';
+    const hostHint = isRemote ? 'SSH 反向隧道监听的主机地址 (通常为 127.0.0.1)' : '本地代理工具监听的主机地址 (通常为 127.0.0.1)';
+    const portHint = isRemote ? '本地 Clash/代理映射到远端的端口 (如 7897)' : '本地 Clash / v2ray 等代理工具的端口 (如 7897)';
+    const testTitle = isRemote ? '🔍 远端真实网络连通性测试 (Remote Test)' : '🔍 本机网络连通性测试 (Local Test)';
+    const testDesc = isRemote
+      ? '点击“重新测试”按钮，将在<strong>远程容器内部</strong>实时检测 SSH 反向隧道连通性、Google AI 核心接口与 <strong>Google OAuth 账号认证接口</strong>的真实 HTTP 状态和毫秒延迟。'
+      : '点击“重新测试”按钮，将针对<strong>本机环境</strong>检测本地代理端口连通性、Google AI 核心接口与 <strong>Google OAuth 账号认证接口</strong>的真实 HTTP 状态和毫秒延迟。';
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -508,7 +517,7 @@ export class SettingsWebviewPanel {
           </span>
         </div>
         <div style="margin-top: 6px; font-size: 11px; opacity: 0.8; font-family: var(--font-mono);">
-          <span>🌐 当前目标主机: <strong>${remoteHost}</strong></span>
+          <span>${envIcon} 当前环境: <strong>${envDesc}</strong></span>
         </div>
       </div>
       <div>
@@ -530,14 +539,14 @@ export class SettingsWebviewPanel {
           <div class="form-group">
             <label for="proxyHost">代理主机 (Proxy Host)</label>
             <input type="text" id="proxyHost" value="${proxyHost}" placeholder="127.0.0.1" />
-            <div class="field-hint">SSH 反向隧道监听的主机地址 (通常为 127.0.0.1)</div>
+            <div class="field-hint">${hostHint}</div>
           </div>
         </div>
         <div class="form-col">
           <div class="form-group">
             <label for="proxyPort">代理端口 (Proxy Port)</label>
             <input type="number" id="proxyPort" value="${proxyPort}" placeholder="7897" min="1" max="65535" />
-            <div class="field-hint">本地 Clash/代理映射到远端的端口 (如 7897)</div>
+            <div class="field-hint">${portHint}</div>
           </div>
         </div>
       </div>
@@ -557,12 +566,12 @@ export class SettingsWebviewPanel {
     <!-- Diagnostics / Connection Test -->
     <div class="card">
       <div class="card-title">
-        <span>🔍 真实网络连通性测试 (Remote Test)</span>
-        <span style="font-size: 11px; font-weight: normal; opacity: 0.7;">远程容器直测：SSH 隧道、Google AI、OAuth 认证</span>
+        <span>${testTitle}</span>
+        <span style="font-size: 11px; font-weight: normal; opacity: 0.7;">SSH 隧道、Google AI、OAuth 认证</span>
       </div>
 
       <p style="font-size: 12px; opacity: 0.8; margin-bottom: 14px;">
-        点击“重新测试”按钮，将在<strong>远程容器内部</strong>实时检测 SSH 反向隧道连通性、Google AI (aicode) 核心接口、遥测服务与 <strong>Google OAuth 账号认证接口</strong>的真实 HTTP 状态和毫秒延迟。
+        ${testDesc}
       </p>
 
       <div class="btn-group">

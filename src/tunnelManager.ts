@@ -34,6 +34,7 @@ export class TunnelManager implements vscode.Disposable {
 
     try {
       // Spawn ssh -N -R in the background without affecting any ssh config
+      const hostArgs = trimmedHost.split(/\s+/).filter(Boolean);
       const args = [
         '-N',
         '-o', 'BatchMode=yes',
@@ -42,7 +43,7 @@ export class TunnelManager implements vscode.Disposable {
         '-o', 'ServerAliveCountMax=3',
         '-R',
         `${remotePort}:127.0.0.1:${localPort}`,
-        trimmedHost
+        ...hostArgs
       ];
 
       this.tunnelProcess = spawn('ssh', args, {

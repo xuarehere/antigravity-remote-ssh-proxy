@@ -39,7 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
           const httpConfig = vscode.workspace.getConfiguration('http');
           await httpConfig.update('proxy', `http://${host}:${port}`, vscode.ConfigurationTarget.Workspace);
         } catch {
-          // Ignore
+          // Ignore if no workspace folder open
         }
       }
 
@@ -59,12 +59,50 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
 
-  initRemoteSession();
+  // Auto-setup for local Windows environment
+  const initLocalSession = async () => {
+    if (vscode.env.remoteName) {
+      return;
+    }
+    const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
+    const autoSetup = config.get<boolean>('autoSetup', true);
+    if (!autoSetup) {
+      return;
+    }
+
+    try {
+      const port = controller.getProxyPort();
+      const host = controller.getProxyHost();
+      if (controller.isEnabled()) {
+        const httpConfig = vscode.workspace.getConfiguration('http');
+        const currentProxy = httpConfig.inspect<string>('proxy')?.globalValue;
+        const expectedProxy = `http://${host}:${port}`;
+        if (currentProxy !== expectedProxy) {
+          await httpConfig.update('proxy', expectedProxy, vscode.ConfigurationTarget.Global);
+          await controller.restartLocalAgy();
+        }
+      }
+      await statusBar.update();
+    } catch {
+      // Ignore background startup errors
+    }
+  };
+
+  // Run appropriate session setup based on environment
+  if (vscode.env.remoteName) {
+    initRemoteSession();
+  } else {
+    initLocalSession();
+  }
 
   // Also listen for workspace folder attachments
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      initRemoteSession();
+      if (vscode.env.remoteName) {
+        initRemoteSession();
+      } else {
+        initLocalSession();
+      }
     })
   );
 
@@ -81,12 +119,13 @@ export function activate(context: vscode.ExtensionContext) {
       const enabled = controller.isEnabled();
       const host = controller.getProxyHost();
       const port = controller.getProxyPort();
-      const detectedHost = controller.detectRemoteHost() || '未检测到远程主机';
+      const detectedHost = controller.detectRemoteHost();
+      const envName = detectedHost ? `远程: ${detectedHost}` : 'Windows 本机';
 
       const items = [
         {
           label: '$(gear) 打开代理配置与连通测试面板 (Settings & Test)',
-          description: `修改主机(${host})与端口(${port})，进行网络连通性测试 [目标: ${detectedHost}]`,
+          description: `修改主机(${host})与端口(${port})，网络连通性诊断 [环境: ${envName}]`,
           action: 'settings'
         },
         {
@@ -94,19 +133,24 @@ export function activate(context: vscode.ExtensionContext) {
             ? '$(circle-slash) 切换为纯直连模式 (Disable Proxy)'
             : '$(plug) 切换为代理加速模式 (Enable Proxy)',
           description: enabled
-            ? '关闭代理，AI 核心走远程服务器本地直连'
-            : `开启代理，AI 核心走本地 ${host}:${port} 隧道加速`,
+            ? `关闭代理，AI 核心服务恢复直连 [当前环境: ${envName}]`
+            : `开启代理，AI 核心服务走 ${host}:${port} 代理加速 [当前环境: ${envName}]`,
           action: 'toggle'
         },
         {
           label: '$(checklist) 运行网络连通性诊断 (Run Diagnostics)',
-          description: '测试 SSH 反向隧道、Google AI 接口与 OAuth 令牌接口详细状态',
+          description: '测试代理端口、Google AI 核心接口与 Google 账号认证 (OAuth2) 状态',
           action: 'diagnose'
+        },
+        {
+          label: '$(refresh) 重启 AI 核心服务 (Restart Agy Service)',
+          description: '强制终止并重新加载 agy 服务，立即应用最新代理配置',
+          action: 'restartAgy'
         }
       ];
 
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Antigravity 代理快捷菜单 (当前: ${enabled ? '已开启' : '纯直连'} | 主机: ${detectedHost})`
+        placeHolder: `Antigravity 代理快捷菜单 (当前: ${enabled ? '已开启' : '纯直连'} | 环境: ${envName})`
       });
 
       if (!selected) {
@@ -120,21 +164,31 @@ export function activate(context: vscode.ExtensionContext) {
         await statusBar.update();
         vscode.window.showInformationMessage(
           isNowEnabled
-            ? 'Antigravity 代理: 已【开启 (ON)】，正在走本地反向隧道。'
-            : 'Antigravity 代理: 已【关闭 (OFF)】，已切换为纯直连模式。'
+            ? `Antigravity 代理 [${envName}]: 已【开启 (ON)】，代理加速已就绪。`
+            : `Antigravity 代理 [${envName}]: 已【关闭 (OFF)】，已恢复纯直连模式。`
         );
       } else if (selected.action === 'diagnose') {
         await diagnostics.run();
+      } else if (selected.action === 'restartAgy') {
+        if (detectedHost) {
+          await controller.restartAgy(detectedHost);
+          vscode.window.showInformationMessage(`[${detectedHost}] 远程 agy 服务已成功重启！`);
+        } else {
+          await controller.restartLocalAgy();
+          vscode.window.showInformationMessage(`[Windows 本机] 本地 agy.exe 服务已重置并重新加载！`);
+        }
       }
     }),
 
     vscode.commands.registerCommand('antigravityRemoteProxy.toggle', async () => {
       const isNowEnabled = await controller.toggle();
+      const detectedHost = controller.detectRemoteHost();
+      const envName = detectedHost ? `远程: ${detectedHost}` : 'Windows 本机';
       await statusBar.update();
       if (isNowEnabled) {
-        vscode.window.showInformationMessage('Antigravity 代理: 已【开启 (ON)】，正在走本地反向隧道。');
+        vscode.window.showInformationMessage(`Antigravity 代理 [${envName}]: 已【开启 (ON)】。`);
       } else {
-        vscode.window.showInformationMessage('Antigravity 代理: 已【关闭 (OFF)】，已切换为纯直连模式。');
+        vscode.window.showInformationMessage(`Antigravity 代理 [${envName}]: 已【关闭 (OFF)】（纯直连）。`);
       }
     }),
 
@@ -155,10 +209,10 @@ export function activate(context: vscode.ExtensionContext) {
       const host = controller.getProxyHost();
       const port = controller.getProxyPort();
       const tunnel = await controller.checkPort(port, host);
-      const remote = controller.detectRemoteHost() || '本地';
+      const remote = controller.detectRemoteHost() || 'Windows 本机';
 
       const msg = enabled
-        ? `[${remote}] 当前状态: 【已开启 (ON)】 | 隧道端口 ${host}:${port}: ${tunnel ? '✓ 连通正常' : '✗ 未连通'}`
+        ? `[${remote}] 当前状态: 【已开启 (ON)】 | 代理端口 ${host}:${port}: ${tunnel ? '✓ 连通正常' : '✗ 未连通'}`
         : `[${remote}] 当前状态: 【已关闭 (OFF)】 | 纯直连模式`;
 
       vscode.window.showInformationMessage(msg);
@@ -189,8 +243,19 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('antigravityRemoteProxy.restore', async () => {
       const ok = await controller.restoreRemote();
       if (ok) {
-        vscode.window.showInformationMessage('远程环境已 100% 彻底复原为初始纯净状态！');
+        vscode.window.showInformationMessage('环境已 100% 彻底复原为初始纯净状态！');
         await statusBar.update();
+      }
+    }),
+
+    vscode.commands.registerCommand('antigravityRemoteProxy.restartAgy', async () => {
+      const detectedHost = controller.detectRemoteHost();
+      if (detectedHost) {
+        await controller.restartAgy(detectedHost);
+        vscode.window.showInformationMessage(`[${detectedHost}] 远程 agy 服务已成功重启！`);
+      } else {
+        await controller.restartLocalAgy();
+        vscode.window.showInformationMessage(`[Windows 本机] 本地 agy.exe 服务已重置并重新加载！`);
       }
     }),
 

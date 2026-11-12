@@ -29,11 +29,12 @@ export class SshBridge {
 
       // Use -n to prevent OpenSSH from blocking on stdin
       // Use BatchMode=yes to fail fast instead of hanging on interactive prompts if key auth is needed
+      const hostArgs = trimmedHost.split(/\s+/).filter(Boolean);
       const args = [
         '-n',
         '-o', 'BatchMode=yes',
         '-o', 'ConnectTimeout=5',
-        trimmedHost,
+        ...hostArgs,
         remoteCommand
       ];
 

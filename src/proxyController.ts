@@ -38,8 +38,15 @@ export class ProxyController implements vscode.Disposable {
         const decoded = Buffer.from(payload, 'hex').toString('utf8');
         if (decoded.startsWith('{') && decoded.endsWith('}')) {
           const parsed = JSON.parse(decoded);
-          if (parsed && typeof parsed.hostName === 'string' && parsed.hostName.trim()) {
-            return parsed.hostName.trim();
+          const rawHost = (parsed.hostName || parsed.hostname || parsed.host || '').trim();
+          if (rawHost) {
+            const port = parsed.port ? Number(parsed.port) : undefined;
+            const user = parsed.user ? String(parsed.user).trim() : undefined;
+            if (port && port !== 22) {
+              const target = user ? `${user}@${rawHost}` : rawHost;
+              return `-p ${port} ${target}`;
+            }
+            return user ? `${user}@${rawHost}` : rawHost;
           }
         }
       } catch {
@@ -49,16 +56,25 @@ export class ProxyController implements vscode.Disposable {
 
     // 2. Fallback to URI-encoded / plain string
     try {
-      return decodeURIComponent(payload).trim();
+      const decoded = decodeURIComponent(payload).trim();
+      if (decoded) {
+        return decoded;
+      }
     } catch {
-      return payload.trim();
+      // fallback
     }
+
+    return payload.trim() || null;
   }
 
   /**
    * Auto-detect remote host alias from VS Code remote workspace.
    */
   public detectRemoteHost(): string | null {
+    if (vscode.env.remoteName !== 'ssh-remote') {
+      return null;
+    }
+
     // 1. Check workspace folders authority (e.g. ssh-remote+10.192.41.183-container-p6680-antigravity-plugin)
     const folders = vscode.workspace.workspaceFolders;
     if (folders && folders.length > 0) {
@@ -88,7 +104,20 @@ export class ProxyController implements vscode.Disposable {
       }
     }
 
-    // 4. Fallback to user-configured remote host
+    // 4. Check visible tab groups
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const inputUri = (tab.input as any)?.uri;
+        if (inputUri && inputUri.authority) {
+          const host = ProxyController.parseRemoteHostFromAuthority(inputUri.authority);
+          if (host) {
+            return host;
+          }
+        }
+      }
+    }
+
+    // 5. Fallback to user-configured remote host (if explicitly set, otherwise null)
     const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
     const configured = config.get<string>('remoteHost', '').trim();
     if (configured) {
@@ -147,6 +176,13 @@ export class ProxyController implements vscode.Disposable {
     return this.cachedEnabledState;
   }
 
+  public async restartLocalAgy(): Promise<void> {
+    if (process.platform === 'win32') {
+      const { exec } = require('child_process');
+      exec('taskkill /IM agy.exe /F', () => {});
+    }
+  }
+
   public async enable(): Promise<void> {
     const host = this.detectRemoteHost();
     const port = this.getProxyPort();
@@ -154,10 +190,8 @@ export class ProxyController implements vscode.Disposable {
 
     try {
       if (host) {
-        // 1. Start dynamic local tunnel to remote host first so proxy port is ready
+        // --- Remote Container Branch ---
         await this.tunnelManager.startTunnel(host, port, port);
-
-        // 2. Set IDE internal http.proxy (workspace scope, zero terminal pollution)
         try {
           const httpConfig = vscode.workspace.getConfiguration('http');
           await httpConfig.update('proxy', `http://${proxyHost}:${port}`, vscode.ConfigurationTarget.Workspace);
@@ -165,17 +199,17 @@ export class ProxyController implements vscode.Disposable {
           // Ignore if no workspace folder open
         }
 
-        // 3. Remove remote disabled flag
         await SshBridge.execRemote(host, 'rm -f "$HOME/.antigravity-ide-server/proxy.disabled"', 4000);
-
-        // 4. Ensure remote wrapper is deployed (can accelerate download via tunnel if new container)
         const isDeployed = await this.deployer.isDeployed(host);
         if (!isDeployed) {
           await this.deployer.deploy(host, proxyHost, port);
         }
-
-        // 5. Restart agy on remote container
         await this.restartAgy(host);
+      } else {
+        // --- Local Windows Branch ---
+        const httpConfig = vscode.workspace.getConfiguration('http');
+        await httpConfig.update('proxy', `http://${proxyHost}:${port}`, vscode.ConfigurationTarget.Global);
+        await this.restartLocalAgy();
       }
 
       this.cachedEnabledState = true;
@@ -189,7 +223,7 @@ export class ProxyController implements vscode.Disposable {
 
     try {
       if (host) {
-        // 1. Clear IDE internal http.proxy
+        // --- Remote Container Branch ---
         try {
           const httpConfig = vscode.workspace.getConfiguration('http');
           await httpConfig.update('proxy', undefined, vscode.ConfigurationTarget.Workspace);
@@ -197,15 +231,15 @@ export class ProxyController implements vscode.Disposable {
           // Ignore
         }
 
-        // 2. Create remote disabled flag
         const cmd = 'mkdir -p "$HOME/.antigravity-ide-server" && touch "$HOME/.antigravity-ide-server/proxy.disabled"';
         await SshBridge.execRemote(host, cmd, 4000);
-
-        // 3. Stop local dynamic tunnel
         this.tunnelManager.stopTunnel();
-
-        // 4. Restart agy on remote container (switches to 100% direct connection)
         await this.restartAgy(host);
+      } else {
+        // --- Local Windows Branch ---
+        const httpConfig = vscode.workspace.getConfiguration('http');
+        await httpConfig.update('proxy', undefined, vscode.ConfigurationTarget.Global);
+        await this.restartLocalAgy();
       }
 
       this.cachedEnabledState = false;
@@ -233,9 +267,9 @@ export class ProxyController implements vscode.Disposable {
     await config.update('proxyHost', trimmedHost, vscode.ConfigurationTarget.Global);
     await config.update('proxyPort', portNum, vscode.ConfigurationTarget.Global);
 
-    // 2. Update remote container proxy.conf
     const remoteHost = this.detectRemoteHost();
     if (remoteHost) {
+      // 2. Update remote container proxy.conf
       const remoteCmd = `mkdir -p "$HOME/.antigravity-ide-server" && printf 'PROXY_HOST="%s"\\nPROXY_PORT="%s"\\n' '${trimmedHost}' '${portNum}' > "$HOME/.antigravity-ide-server/proxy.conf"`;
       await SshBridge.execRemote(remoteHost, remoteCmd, 4000);
 
@@ -250,27 +284,37 @@ export class ProxyController implements vscode.Disposable {
         }
         await this.restartAgy(remoteHost);
       }
+    } else {
+      // Local Windows: update global http.proxy if enabled
+      if (this.isEnabled()) {
+        const httpConfig = vscode.workspace.getConfiguration('http');
+        await httpConfig.update('proxy', `http://${trimmedHost}:${portNum}`, vscode.ConfigurationTarget.Global);
+        await this.restartLocalAgy();
+      }
     }
   }
 
   public async restoreRemote(): Promise<boolean> {
     const host = this.detectRemoteHost();
-    // 1. Stop local dynamic tunnel
     this.tunnelManager.stopTunnel();
 
-    // 2. Clear IDE internal http.proxy
     try {
       const httpConfig = vscode.workspace.getConfiguration('http');
       await httpConfig.update('proxy', undefined, vscode.ConfigurationTarget.Workspace);
+      if (!host) {
+        await httpConfig.update('proxy', undefined, vscode.ConfigurationTarget.Global);
+        await this.restartLocalAgy();
+      }
     } catch {
       // Ignore
     }
 
     if (!host) {
+      this.cachedEnabledState = false;
       return true;
     }
 
-    // 3. Clean restore remote environment
+    // Clean restore remote environment
     const success = await this.deployer.restore(host);
     this.cachedEnabledState = false;
     return success;
