@@ -2,7 +2,7 @@
   "name": "antigravity-remote-ssh-proxy",
   "displayName": "Antigravity Remote SSH Proxy",
   "description": "Visual UI configuration, one-click toggleable proxy and network acceleration for Antigravity IDE remote development.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "publisher": "xuarehere",
   "repository": {
     "type": "git",
@@ -17,8 +17,7 @@
     "Programming Languages"
   ],
   "extensionKind": [
-    "ui",
-    "workspace"
+    "ui"
   ],
   "activationEvents": [
     "onStartupFinished"

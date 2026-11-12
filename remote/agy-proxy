@@ -4,7 +4,6 @@ CONF_FILE="$HOME/.antigravity-ide-server/proxy.conf"
 PROXY_HOST="127.0.0.1"
 PROXY_PORT="7897"
 [ -f "$CONF_FILE" ] && source "$CONF_FILE"
-
 DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
 
 check_port() {
@@ -26,24 +25,13 @@ restart_agy() {
 case "$1" in
     on|enable)
         rm -f "$DISABLED_FLAG"
-        echo "============================================="
-        echo " [OK] Antigravity Proxy: ENABLED [ON]"
-        echo " Target: ${PROXY_HOST}:${PROXY_PORT} (Local reverse tunnel)"
-        echo " Reloading AI core service..."
+        echo "[OK] Antigravity Proxy: ENABLED [ON]"
         restart_agy
-        echo " Reload complete! AI network is now ACTIVE."
-        echo "============================================="
         ;;
     off|disable)
         touch "$DISABLED_FLAG"
-        echo "============================================="
-        echo " [OFF] Antigravity Proxy: DISABLED [OFF]"
-        echo " Mode: Pure Direct Connection (No proxy variables)"
-        echo " Note: 100% direct connection when remote has no proxy"
-        echo " Reloading AI core service..."
+        echo "[OFF] Antigravity Proxy: DISABLED [OFF] (Pure Direct Connection)"
         restart_agy
-        echo " Reload complete! Proxy completely detached."
-        echo "============================================="
         ;;
     toggle)
         if [ -f "$DISABLED_FLAG" ]; then
@@ -53,23 +41,23 @@ case "$1" in
         fi
         ;;
     status|"")
-        echo "============================================="
         if [ -f "$DISABLED_FLAG" ]; then
-            echo " Status: [DISABLED / OFF]"
-            echo " Mode: Pure Direct Connection (zero proxy injected)"
+            echo "Status: [OFF / Direct Connection]"
         else
-            echo " Status: [ENABLED / ON]"
-            echo " Target: ${PROXY_HOST}:${PROXY_PORT} (Local reverse tunnel)"
+            echo "Status: [ON / Proxy Enabled: ${PROXY_HOST}:${PROXY_PORT}]"
             if check_port "$PROXY_HOST" "$PROXY_PORT"; then
-                echo " Tunnel: OK (Port ${PROXY_PORT} is reachable)"
+                echo "Tunnel: OK (Port $PROXY_PORT is reachable)"
             else
-                echo " Tunnel: WARN (Port ${PROXY_PORT} is not listening, check SSH RemoteForward)"
+                echo "Tunnel: WARN (Port $PROXY_PORT is NOT reachable)"
             fi
         fi
-        echo "============================================="
+        ;;
+    test)
+        echo "Testing connection from container to Google AI..."
+        curl -sI -m 5 -x "http://${PROXY_HOST}:${PROXY_PORT}" https://aicode.googleapis.com
         ;;
     *)
-        echo "Usage: agy-proxy {on|off|toggle|status}"
+        echo "Usage: $0 {on|off|toggle|status|test}"
         exit 1
         ;;
 esac

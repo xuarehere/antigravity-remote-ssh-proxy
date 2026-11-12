@@ -1,27 +1,41 @@
 import * as vscode from 'vscode';
 import { ProxyController } from './proxyController';
 import { StatusBarManager } from './statusBar';
-import { RemoteDeployer } from './remoteDeployer';
 import { DiagnosticsRunner } from './diagnostics';
 import { SettingsWebviewPanel } from './settingsWebview';
 
 export function activate(context: vscode.ExtensionContext) {
   const controller = new ProxyController();
   const statusBar = new StatusBarManager(controller);
-  const deployer = new RemoteDeployer();
+  const deployer = controller.getDeployer();
   const diagnostics = new DiagnosticsRunner(controller);
 
-  // Auto-setup if running in remote environment
+  // Auto-setup and auto-tunnel if running in remote environment
   if (vscode.env.remoteName) {
     const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
     const autoSetup = config.get<boolean>('autoSetup', true);
 
-    if (autoSetup && !deployer.isDeployed()) {
-      deployer.deploy().then((success) => {
-        if (success) {
-          statusBar.update();
+    const remoteHost = controller.detectRemoteHost();
+    if (remoteHost && autoSetup) {
+      (async () => {
+        try {
+          await controller.syncStatusFromRemote();
+          const isDeployed = await deployer.isDeployed(remoteHost);
+          if (!isDeployed) {
+            await deployer.deploy(remoteHost);
+          }
+
+          if (controller.isEnabled()) {
+            const port = controller.getProxyPort();
+            await controller.getTunnelManager().startTunnel(remoteHost, port, port);
+            // Brief delay and restart agy so it boots up with proxy
+            await controller.restartAgy(remoteHost);
+          }
+          await statusBar.update();
+        } catch {
+          // Ignore background startup errors
         }
-      });
+      })();
     }
   }
 
@@ -38,11 +52,12 @@ export function activate(context: vscode.ExtensionContext) {
       const enabled = controller.isEnabled();
       const host = controller.getProxyHost();
       const port = controller.getProxyPort();
+      const detectedHost = controller.detectRemoteHost() || '未检测到远程主机';
 
       const items = [
         {
           label: '$(gear) 打开代理配置与连通测试面板 (Settings & Test)',
-          description: `修改主机(${host})与端口(${port})，进行网络连通性测试`,
+          description: `修改主机(${host})与端口(${port})，进行网络连通性测试 [目标: ${detectedHost}]`,
           action: 'settings'
         },
         {
@@ -56,13 +71,13 @@ export function activate(context: vscode.ExtensionContext) {
         },
         {
           label: '$(checklist) 运行网络连通性诊断 (Run Diagnostics)',
-          description: '测试 SSH 反向隧道与 Google AI 接口详细状态',
+          description: '测试 SSH 反向隧道、Google AI 接口与 OAuth 令牌接口详细状态',
           action: 'diagnose'
         }
       ];
 
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Antigravity 代理快捷菜单 (当前: ${enabled ? '已开启' : '纯直连'})`
+        placeHolder: `Antigravity 代理快捷菜单 (当前: ${enabled ? '已开启' : '纯直连'} | 主机: ${detectedHost})`
       });
 
       if (!selected) {
@@ -111,21 +126,23 @@ export function activate(context: vscode.ExtensionContext) {
       const host = controller.getProxyHost();
       const port = controller.getProxyPort();
       const tunnel = await controller.checkPort(port, host);
+      const remote = controller.detectRemoteHost() || '本地';
 
       const msg = enabled
-        ? `当前状态: 【已开启 (ON)】 | 隧道端口 ${host}:${port}: ${tunnel ? '✓ 连通正常' : '✗ 未连通'}`
-        : `当前状态: 【已关闭 (OFF)】 | 纯直连模式`;
+        ? `[${remote}] 当前状态: 【已开启 (ON)】 | 隧道端口 ${host}:${port}: ${tunnel ? '✓ 连通正常' : '✗ 未连通'}`
+        : `[${remote}] 当前状态: 【已关闭 (OFF)】 | 纯直连模式`;
 
       vscode.window.showInformationMessage(msg);
       await statusBar.update();
     }),
 
-    vscode.commands.registerCommand('antigravityRemoteProxy.diagnose', async () => {
-      await diagnostics.run();
-    }),
-
     vscode.commands.registerCommand('antigravityRemoteProxy.setupRemote', async () => {
-      const ok = await deployer.deploy();
+      const remoteHost = controller.detectRemoteHost();
+      if (!remoteHost) {
+        vscode.window.showWarningMessage('未检测到远程 SSH 主机。');
+        return;
+      }
+      const ok = await deployer.deploy(remoteHost);
       if (ok) {
         vscode.window.showInformationMessage('Antigravity 远端代理组件已成功部署！');
         await statusBar.update();

@@ -1,18 +1,45 @@
-"use strict";var z=Object.create;var $=Object.defineProperty;var G=Object.getOwnPropertyDescriptor;var j=Object.getOwnPropertyNames;var U=Object.getPrototypeOf,W=Object.prototype.hasOwnProperty;var V=(n,t)=>{for(var e in t)$(n,e,{get:t[e],enumerable:!0})},_=(n,t,e,r)=>{if(t&&typeof t=="object"||typeof t=="function")for(let s of j(t))!W.call(n,s)&&s!==e&&$(n,s,{get:()=>t[s],enumerable:!(r=G(t,s))||r.enumerable});return n};var g=(n,t,e)=>(e=n!=null?z(U(n)):{},_(t||!n||!n.__esModule?$(e,"default",{value:n,enumerable:!0}):e,n)),K=n=>_($({},"__esModule",{value:!0}),n);var Q={};V(Q,{activate:()=>q,deactivate:()=>J});module.exports=K(Q);var c=g(require("vscode"));var i=g(require("fs")),f=g(require("path")),H=g(require("os")),A=g(require("net")),F=require("child_process"),p=g(require("vscode"));var T=require("child_process"),C=g(require("os")),B=class{tunnelProcess=null;currentHost=null;activePort=7897;isTunnelActive(){return this.tunnelProcess!==null&&!this.tunnelProcess.killed}getActiveHost(){return this.currentHost}async startTunnel(t,e=7897,r=7897){let s=(t||"").trim();if(!s)return!1;if(this.isTunnelActive()&&this.currentHost===s&&this.activePort===e)return!0;this.stopTunnel(),this.currentHost=s,this.activePort=e;try{let o=["-N","-R",`${e}:127.0.0.1:${r}`,s];return this.tunnelProcess=(0,T.spawn)("ssh",o,{windowsHide:!0,stdio:"ignore",detached:!1}),this.tunnelProcess.on("exit",()=>{this.tunnelProcess=null}),this.tunnelProcess.on("error",()=>{this.tunnelProcess=null}),await new Promise(a=>setTimeout(a,1500)),this.isTunnelActive()}catch{return this.tunnelProcess=null,!1}}stopTunnel(){if(this.tunnelProcess){try{C.platform()==="win32"&&this.tunnelProcess.pid?(0,T.exec)(`taskkill /PID ${this.tunnelProcess.pid} /F /T`,()=>{}):this.tunnelProcess.kill("SIGTERM")}catch{}this.tunnelProcess=null}}dispose(){this.stopTunnel()}};var I=class{serverDir;disabledFlagPath;confFilePath;geminiBinDir;agyPath;agyRealPath;tunnelManager;constructor(){let t=H.homedir();this.serverDir=f.join(t,".antigravity-ide-server"),this.disabledFlagPath=f.join(this.serverDir,"proxy.disabled"),this.confFilePath=f.join(this.serverDir,"proxy.conf"),this.geminiBinDir=f.join(t,".gemini","bin"),this.agyPath=f.join(this.geminiBinDir,"agy"),this.agyRealPath=f.join(this.geminiBinDir,"agy.real"),this.tunnelManager=new B}getTunnelManager(){return this.tunnelManager}getProxyHost(){let e=p.workspace.getConfiguration("antigravityRemoteProxy").get("proxyHost","127.0.0.1");try{if(i.existsSync(this.confFilePath)){let s=i.readFileSync(this.confFilePath,"utf8").match(/PROXY_HOST=["']?([^"'\s\r\n]+)["']?/);s&&s[1]&&(e=s[1])}}catch{}return e}getProxyPort(){let e=p.workspace.getConfiguration("antigravityRemoteProxy").get("proxyPort",7897);try{if(i.existsSync(this.confFilePath)){let s=i.readFileSync(this.confFilePath,"utf8").match(/PROXY_PORT=["']?([0-9]+)["']?/);if(s&&s[1]){let o=parseInt(s[1],10);!isNaN(o)&&o>0&&o<=65535&&(e=o)}}}catch{}return e}isEnabled(){try{return!i.existsSync(this.disabledFlagPath)}catch{return!0}}async enable(){try{i.existsSync(this.disabledFlagPath)&&i.unlinkSync(this.disabledFlagPath);let t=this.getProxyPort(),e=this.getProxyHost();if(!await this.checkPort(t,e,1e3)){let o=p.workspace.getConfiguration("antigravityRemoteProxy").get("remoteHost","");o&&await this.tunnelManager.startTunnel(o,t)}await this.restartAgy()}catch(t){p.window.showErrorMessage(`\u5F00\u542F\u4EE3\u7406\u5931\u8D25: ${t.message}`)}}async disable(){try{i.existsSync(this.serverDir)||i.mkdirSync(this.serverDir,{recursive:!0}),i.writeFileSync(this.disabledFlagPath,""),this.tunnelManager.stopTunnel(),await this.restartAgy()}catch(t){p.window.showErrorMessage(`\u5173\u95ED\u4EE3\u7406\u5931\u8D25: ${t.message}`)}}async toggle(){return this.isEnabled()?(await this.disable(),!1):(await this.enable(),!0)}async saveConfig(t,e){let r=(t||"127.0.0.1").trim(),s=Number(e)||7897,o=p.workspace.getConfiguration("antigravityRemoteProxy");await o.update("proxyHost",r,p.ConfigurationTarget.Global),await o.update("proxyPort",s,p.ConfigurationTarget.Global);try{i.existsSync(this.serverDir)||i.mkdirSync(this.serverDir,{recursive:!0});let a=`PROXY_HOST="${r}"
-PROXY_PORT="${s}"
-`;i.writeFileSync(this.confFilePath,a,"utf8")}catch(a){p.window.showWarningMessage(`\u5199\u5165\u914D\u7F6E\u6587\u4EF6\u5931\u8D25: ${a.message}`)}await this.restartAgy()}async restoreRemote(){try{this.tunnelManager.stopTunnel(),i.existsSync(this.agyRealPath)&&(i.existsSync(this.agyPath)&&i.unlinkSync(this.agyPath),i.renameSync(this.agyRealPath,this.agyPath)),i.existsSync(this.disabledFlagPath)&&i.unlinkSync(this.disabledFlagPath),i.existsSync(this.confFilePath)&&i.unlinkSync(this.confFilePath);let t=f.join(this.serverDir,"bin","agy-proxy");return i.existsSync(t)&&i.unlinkSync(t),await this.restartAgy(),!0}catch(t){return p.window.showErrorMessage(`\u5B8C\u5168\u590D\u539F\u8FDC\u7A0B\u73AF\u5883\u5931\u8D25: ${t.message}`),!1}}async restartAgy(){return new Promise(t=>{(0,F.exec)('for p in $(pidof agy agy.real 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done',{timeout:4e3},()=>{t()})})}checkPort(t,e="127.0.0.1",r=1500){return new Promise(s=>{let o=new A.Socket;o.setTimeout(r),o.on("connect",()=>{o.destroy(),s(!0)}),o.on("timeout",()=>{o.destroy(),s(!1)}),o.on("error",()=>{o.destroy(),s(!1)}),o.connect(t,e)})}dispose(){this.tunnelManager.dispose()}};var w=g(require("vscode")),E=class{statusBarItem;controller;updateTimer=null;constructor(t){this.controller=t,this.statusBarItem=w.window.createStatusBarItem(w.StatusBarAlignment.Right,100),this.statusBarItem.command="antigravityRemoteProxy.menu"}init(t){t.subscriptions.push(this.statusBarItem),this.update(),this.statusBarItem.show(),this.updateTimer=setInterval(()=>{this.update()},5e3),t.subscriptions.push({dispose:()=>{this.updateTimer&&clearInterval(this.updateTimer)}})}async update(){let t=this.controller.getProxyHost(),e=this.controller.getProxyPort();if(!this.controller.isEnabled()){this.statusBarItem.text="$(circle-slash) AI\u4EE3\u7406: \u7EAF\u76F4\u8FDE",this.statusBarItem.tooltip=`Antigravity \u4EE3\u7406: \u5DF2\u5173\u95ED (\u7EAF\u76F4\u8FDE\u6A21\u5F0F)
-\u76EE\u6807\u4E3B\u673A\u4E0E\u7AEF\u53E3: ${t}:${e}
-\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E\u9762\u677F\u6216\u5207\u6362`,this.statusBarItem.backgroundColor=void 0;return}await this.controller.checkPort(e,t)?(this.statusBarItem.text=`$(plug) AI\u4EE3\u7406: \u5F00\u542F (${e})`,this.statusBarItem.tooltip=`Antigravity \u4EE3\u7406: \u5DF2\u5F00\u542F (\u8D70\u53CD\u5411\u96A7\u9053 ${t}:${e})
-\u96A7\u9053\u72B6\u6001: \u2713 \u6B63\u5E38\u8FDE\u901A
-\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E\u9762\u677F\u6216\u5207\u6362`,this.statusBarItem.backgroundColor=void 0):(this.statusBarItem.text="$(warning) AI\u4EE3\u7406: \u96A7\u9053\u672A\u901A",this.statusBarItem.tooltip=`Antigravity \u4EE3\u7406: \u5DF2\u5F00\u542F\uFF0C\u4F46 ${t}:${e} \u65E0\u6CD5\u8FDE\u901A\uFF01
-\u8BF7\u68C0\u67E5\u672C\u5730 SSH \u914D\u7F6E\u6216\u4EE3\u7406\u8F6F\u4EF6
-\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E\u9762\u677F\u8FDB\u884C\u6D4B\u8BD5`,this.statusBarItem.backgroundColor=new w.ThemeColor("statusBarItem.warningBackground"))}};var d=g(require("fs")),b=g(require("path")),M=g(require("os")),L=g(require("vscode")),O=class{homeDir;serverBinDir;agyProxyPath;geminiBinDir;agyPath;agyRealPath;constructor(){this.homeDir=M.homedir(),this.serverBinDir=b.join(this.homeDir,".antigravity-ide-server","bin"),this.agyProxyPath=b.join(this.serverBinDir,"agy-proxy"),this.geminiBinDir=b.join(this.homeDir,".gemini","bin"),this.agyPath=b.join(this.geminiBinDir,"agy"),this.agyRealPath=b.join(this.geminiBinDir,"agy.real")}isDeployed(){try{let t=d.existsSync(this.agyProxyPath),e=d.existsSync(this.agyRealPath);return t&&e}catch{return!1}}async deploy(){try{d.existsSync(this.serverBinDir)||d.mkdirSync(this.serverBinDir,{recursive:!0}),d.writeFileSync(this.agyProxyPath,`#!/bin/bash
-# Antigravity IDE Remote Proxy Control Script
+"use strict";var L=Object.create;var P=Object.defineProperty;var N=Object.getOwnPropertyDescriptor;var Y=Object.getOwnPropertyNames;var X=Object.getPrototypeOf,z=Object.prototype.hasOwnProperty;var G=(i,e)=>{for(var t in e)P(i,t,{get:e[t],enumerable:!0})},I=(i,e,t,s)=>{if(e&&typeof e=="object"||typeof e=="function")for(let r of Y(e))!z.call(i,r)&&r!==t&&P(i,r,{get:()=>e[r],enumerable:!(s=N(e,r))||s.enumerable});return i};var h=(i,e,t)=>(t=i!=null?L(X(i)):{},I(e||!i||!i.__esModule?P(t,"default",{value:i,enumerable:!0}):t,i)),U=i=>I(P({},"__esModule",{value:!0}),i);var K={};G(K,{activate:()=>W,deactivate:()=>j});module.exports=U(K);var c=h(require("vscode"));var M=h(require("net")),u=h(require("vscode"));var $=require("child_process"),B=h(require("os")),E=class{tunnelProcess=null;currentHost=null;activePort=7897;isTunnelActive(){return this.tunnelProcess!==null&&!this.tunnelProcess.killed}getActiveHost(){return this.currentHost}async startTunnel(e,t=7897,s=7897){let r=(e||"").trim();if(!r)return!1;if(this.isTunnelActive()&&this.currentHost===r&&this.activePort===t)return!0;this.stopTunnel(),this.currentHost=r,this.activePort=t;try{let o=["-N","-o","BatchMode=yes","-o","ExitOnForwardFailure=yes","-o","ServerAliveInterval=15","-o","ServerAliveCountMax=3","-R",`${t}:127.0.0.1:${s}`,r];return this.tunnelProcess=(0,$.spawn)("ssh",o,{windowsHide:!0,stdio:"ignore",detached:!1}),this.tunnelProcess.on("exit",()=>{this.tunnelProcess=null}),this.tunnelProcess.on("error",()=>{this.tunnelProcess=null}),await new Promise(a=>setTimeout(a,1500)),this.isTunnelActive()}catch{return this.tunnelProcess=null,!1}}stopTunnel(){if(this.tunnelProcess){try{B.platform()==="win32"&&this.tunnelProcess.pid?(0,$.exec)(`taskkill /PID ${this.tunnelProcess.pid} /F /T`,()=>{}):this.tunnelProcess.kill("SIGTERM")}catch{}this.tunnelProcess=null}}dispose(){this.stopTunnel()}};var C=require("child_process"),p=class{static execRemote(e,t,s=1e4){return new Promise(r=>{let o=(e||"").trim();if(!o){r({stdout:"",stderr:"No remote host specified",exitCode:-1});return}(0,C.execFile)("ssh",["-n","-o","BatchMode=yes","-o","ConnectTimeout=5",o,t],{timeout:s,windowsHide:!0},(n,l,d)=>{let g=n?typeof n.code=="number"?n.code:1:0;r({stdout:l||"",stderr:d||(n?n.message:""),exitCode:g})})})}static async isHostReachable(e){let t=await this.execRemote(e,"echo SSH_OK",4e3);return t.exitCode===0&&t.stdout.includes("SSH_OK")}};var R=class{async isDeployed(e){return(await p.execRemote(e,'[ -f "$HOME/.gemini/bin/agy.real" ] && grep -q "agy.real" "$HOME/.gemini/bin/agy" 2>/dev/null && echo "DEPLOYED"',5e3)).stdout.includes("DEPLOYED")}async deploy(e){return(await p.execRemote(e,`
+mkdir -p "$HOME/.antigravity-ide-server/bin" "$HOME/.gemini/bin"
+
+# 1. Backup original agy to agy.real if not already done
+if [ -f "$HOME/.gemini/bin/agy" ] && ! grep -q "agy.real" "$HOME/.gemini/bin/agy" 2>/dev/null; then
+    mv -f "$HOME/.gemini/bin/agy" "$HOME/.gemini/bin/agy.real"
+fi
+
+# 2. Write wrapper script
+cat << 'EOF' > "$HOME/.gemini/bin/agy"
+#!/bin/bash
 CONF_FILE="$HOME/.antigravity-ide-server/proxy.conf"
 PROXY_HOST="127.0.0.1"
 PROXY_PORT="7897"
 [ -f "$CONF_FILE" ] && source "$CONF_FILE"
 
+DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
+if [ ! -f "$DISABLED_FLAG" ]; then
+    export http_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export https_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export HTTP_PROXY="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export HTTPS_PROXY="http://\${PROXY_HOST}:\${PROXY_PORT}"
+    export all_proxy="socks5://\${PROXY_HOST}:\${PROXY_PORT}"
+    export ALL_PROXY="socks5://\${PROXY_HOST}:\${PROXY_PORT}"
+    export no_proxy="localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16"
+    export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16"
+else
+    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+fi
+exec "$HOME/.gemini/bin/agy.real" "$@"
+EOF
+
+chmod +x "$HOME/.gemini/bin/agy"
+[ -f "$HOME/.gemini/bin/agy.real" ] && chmod +x "$HOME/.gemini/bin/agy.real"
+
+# 3. Write CLI tool agy-proxy for remote manual use
+cat << 'EOF' > "$HOME/.antigravity-ide-server/bin/agy-proxy"
+#!/bin/bash
+CONF_FILE="$HOME/.antigravity-ide-server/proxy.conf"
+PROXY_HOST="127.0.0.1"
+PROXY_PORT="7897"
+[ -f "$CONF_FILE" ] && source "$CONF_FILE"
 DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
 
 check_port() {
@@ -34,24 +61,13 @@ restart_agy() {
 case "$1" in
     on|enable)
         rm -f "$DISABLED_FLAG"
-        echo "============================================="
-        echo " [OK] Antigravity Proxy: ENABLED [ON]"
-        echo " Target: \${PROXY_HOST}:\${PROXY_PORT} (Local reverse tunnel)"
-        echo " Reloading AI core service..."
+        echo "[OK] Antigravity Proxy: ENABLED [ON]"
         restart_agy
-        echo " Reload complete! AI network is now ACTIVE."
-        echo "============================================="
         ;;
     off|disable)
         touch "$DISABLED_FLAG"
-        echo "============================================="
-        echo " [OFF] Antigravity Proxy: DISABLED [OFF]"
-        echo " Mode: Pure Direct Connection (No proxy variables)"
-        echo " Note: 100% direct connection when remote has no proxy"
-        echo " Reloading AI core service..."
+        echo "[OFF] Antigravity Proxy: DISABLED [OFF] (Pure Direct Connection)"
         restart_agy
-        echo " Reload complete! Proxy completely detached."
-        echo "============================================="
         ;;
     toggle)
         if [ -f "$DISABLED_FLAG" ]; then
@@ -61,61 +77,54 @@ case "$1" in
         fi
         ;;
     status|"")
-        echo "============================================="
         if [ -f "$DISABLED_FLAG" ]; then
-            echo " Status: [DISABLED / OFF]"
-            echo " Mode: Pure Direct Connection (zero proxy injected)"
+            echo "Status: [OFF / Direct Connection]"
         else
-            echo " Status: [ENABLED / ON]"
-            echo " Target: \${PROXY_HOST}:\${PROXY_PORT} (Local reverse tunnel)"
+            echo "Status: [ON / Proxy Enabled: \${PROXY_HOST}:\${PROXY_PORT}]"
             if check_port "$PROXY_HOST" "$PROXY_PORT"; then
-                echo " Tunnel: OK (Port \${PROXY_PORT} is reachable)"
+                echo "Tunnel: OK (Port $PROXY_PORT is reachable)"
             else
-                echo " Tunnel: WARN (Port \${PROXY_PORT} is not listening, check SSH RemoteForward)"
+                echo "Tunnel: WARN (Port $PROXY_PORT is NOT reachable)"
             fi
         fi
-        echo "============================================="
+        ;;
+    test)
+        echo "Testing connection from container to Google AI..."
+        curl -sI -m 5 -x "http://\${PROXY_HOST}:\${PROXY_PORT}" https://aicode.googleapis.com
         ;;
     *)
-        echo "Usage: agy-proxy {on|off|toggle|status}"
+        echo "Usage: $0 {on|off|toggle|status|test}"
         exit 1
         ;;
 esac
-`,{mode:493});let e=b.join(this.homeDir,".local","bin");try{d.existsSync(e)||d.mkdirSync(e,{recursive:!0});let r=b.join(e,"agy-proxy");d.existsSync(r)||d.symlinkSync(this.agyProxyPath,r)}catch{}return d.existsSync(this.agyPath)&&!d.existsSync(this.agyRealPath)&&(d.renameSync(this.agyPath,this.agyRealPath),d.writeFileSync(this.agyPath,`#!/bin/bash
-CONF_FILE="$HOME/.antigravity-ide-server/proxy.conf"
-PROXY_HOST="127.0.0.1"
-PROXY_PORT="7897"
-[ -f "$CONF_FILE" ] && source "$CONF_FILE"
+EOF
 
-check_port() {
-    local host="$1"
-    local port="$2"
-    if command -v nc >/dev/null 2>&1; then
-        nc -w 1 -z "$host" "$port" 2>/dev/null
-    else
-        timeout 1 bash -c "cat < /dev/null > /dev/tcp/$host/$port" 2>/dev/null
-    fi
-}
-
-DISABLED_FLAG="$HOME/.antigravity-ide-server/proxy.disabled"
-if [ ! -f "$DISABLED_FLAG" ] && check_port "$PROXY_HOST" "$PROXY_PORT"; then
-    export http_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
-    export https_proxy="http://\${PROXY_HOST}:\${PROXY_PORT}"
-    export HTTP_PROXY="http://\${PROXY_HOST}:\${PROXY_PORT}"
-    export HTTPS_PROXY="http://\${PROXY_HOST}:\${PROXY_PORT}"
-    export all_proxy="socks5://\${PROXY_HOST}:\${PROXY_PORT}"
-    export ALL_PROXY="socks5://\${PROXY_HOST}:\${PROXY_PORT}"
-    export no_proxy="localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16"
-    export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16"
-else
-    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+chmod +x "$HOME/.antigravity-ide-server/bin/agy-proxy"
+echo "DEPLOY_SUCCESS"
+`,1e4)).stdout.includes("DEPLOY_SUCCESS")}async restore(e){return(await p.execRemote(e,`
+if [ -f "$HOME/.gemini/bin/agy.real" ]; then
+    rm -f "$HOME/.gemini/bin/agy"
+    mv -f "$HOME/.gemini/bin/agy.real" "$HOME/.gemini/bin/agy"
+    chmod +x "$HOME/.gemini/bin/agy"
 fi
-exec "$HOME/.gemini/bin/agy.real" "$@"
-`,{mode:493}),d.chmodSync(this.agyRealPath,493)),!0}catch(t){return L.window.showErrorMessage(`\u914D\u7F6E\u8FDC\u7AEF\u4EE3\u7406\u7EC4\u4EF6\u5931\u8D25: ${t.message}`),!1}}};var N=g(require("vscode")),Y=require("child_process"),k=class{controller;outputChannel;constructor(t){this.controller=t,this.outputChannel=N.window.createOutputChannel("Antigravity Proxy Diagnostics")}async testConnection(t,e){let r=(t||this.controller.getProxyHost()||"127.0.0.1").trim(),s=Number(e)||this.controller.getProxyPort()||7897,o=this.controller.isEnabled(),a=[],l=!1,y=Date.now();try{l=await this.controller.checkPort(s,r,2e3);let v=Date.now()-y;l?a.push({name:`\u53CD\u5411\u96A7\u9053\u7AEF\u53E3 (${r}:${s})`,status:"success",latencyMs:v,message:`\u8FDE\u901A\u6B63\u5E38 (TCP \u63E1\u624B\u8017\u65F6 ${v}ms)`}):a.push({name:`\u53CD\u5411\u96A7\u9053\u7AEF\u53E3 (${r}:${s})`,status:"error",latencyMs:v,message:`\u65E0\u6CD5\u5EFA\u7ACB TCP \u63E1\u624B\uFF01\u8BF7\u68C0\u67E5\u672C\u5730\u4EE3\u7406\u5DE5\u5177\u662F\u5426\u542F\u52A8\uFF0C\u4E14 SSH \u662F\u5426\u914D\u7F6E\u4E86 RemoteForward ${s} 127.0.0.1:${s}`})}catch(v){a.push({name:`\u53CD\u5411\u96A7\u9053\u7AEF\u53E3 (${r}:${s})`,status:"error",message:`\u68C0\u6D4B\u5F02\u5E38: ${v.message}`})}let u=l?`-x http://${r}:${s}`:"",m=await this.probeUrl("Google AI \u6838\u5FC3\u63A5\u53E3 (aicode.googleapis.com)","https://aicode.googleapis.com",u);a.push(m);let D=await this.probeUrl("Google \u9065\u6D4B\u670D\u52A1 (play.googleapis.com/log)","https://play.googleapis.com/log",u);a.push(D);let h="success",P="\u{1F389} \u4EE3\u7406\u901A\u9053\u7545\u901A\uFF0CGoogle AI \u63A5\u53E3\u8FDE\u901A\u6B63\u5E38\uFF01",S=a.some(v=>v.status==="error"),X=a.some(v=>v.status==="success");return l?S&&(X?(h="warning",P="\u26A0\uFE0F \u96A7\u9053\u5DF2\u8FDE\u901A\uFF0C\u4F46\u90E8\u5206 Google \u670D\u52A1\u63A2\u6D4B\u5F02\u5E38\uFF0C\u8BF7\u786E\u8BA4\u4EE3\u7406\u8282\u70B9\u662F\u5426\u80FD\u591F\u8BBF\u95EE Google AI\u3002"):(h="error",P="\u274C \u65E0\u6CD5\u8BBF\u95EE Google AI \u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u672C\u5730\u4EE3\u7406\u89C4\u5219\u4E0E\u8282\u70B9\u53EF\u7528\u6027\u3002")):(h="error",P=`\u274C \u53CD\u5411\u96A7\u9053\u672A\u8FDE\u901A (${r}:${s})\uFF0C\u8BF7\u68C0\u67E5\u672C\u5730\u4EE3\u7406\u53CA SSH \u8F6C\u53D1\u3002`),{timestamp:new Date().toLocaleTimeString(),proxyHost:r,proxyPort:s,isEnabled:o,tunnelReachable:l,steps:a,overallStatus:h,summary:P}}probeUrl(t,e,r){return new Promise(s=>{let o=Date.now(),a=`curl -sI -m 6 ${r} "${e}"`;(0,Y.exec)(a,(l,y,u)=>{let m=Date.now()-o;if(l){let S=u?u.trim():l.message.trim();s({name:t,status:"error",latencyMs:m,message:`\u8BF7\u6C42\u5931\u8D25 (${m}ms): ${S.slice(0,100)}`});return}let h=y.split(`
-`).map(S=>S.trim()).filter(Boolean)[0]||"",P=y.includes("server: ESF")||y.includes("Server: ESF")||y.includes("200 Connection established");h.includes("200")||h.includes("404")||h.includes("405")||P?s({name:t,status:"success",latencyMs:m,message:`\u8BBF\u95EE\u6B63\u5E38 (${h||"HTTP 200"}, \u8017\u65F6 ${m}ms)`}):h.includes("403")?s({name:t,status:"error",latencyMs:m,message:"\u8FD4\u56DE 403 Forbidden\uFF08\u53D7\u5730\u57DF\u9650\u5236\u963B\u6B62\uFF0C\u8BF7\u5207\u6362\u652F\u6301 Google AI \u7684\u4EE3\u7406\u8282\u70B9\uFF09"}):s({name:t,status:"warning",latencyMs:m,message:`\u8FD4\u56DE\u72B6\u6001: ${h||"\u672A\u77E5"} (${m}ms)`})})})}async run(){this.outputChannel.clear(),this.outputChannel.show(!0),this.log("===================================================="),this.log(" Antigravity Remote Proxy - \u7F51\u7EDC\u8FDE\u901A\u6027\u8BCA\u65AD\u62A5\u544A"),this.log(` \u65F6\u95F4: ${new Date().toLocaleString()}`),this.log(`====================================================
-`);let t=await this.testConnection();this.log(`[1] \u4EE3\u7406\u5F00\u5173: ${t.isEnabled?"\u3010\u5DF2\u5F00\u542F (ON)\u3011":"\u3010\u5DF2\u5173\u95ED (OFF - \u7EAF\u76F4\u8FDE)\u3011"}`),this.log(`[2] \u4EE3\u7406\u76EE\u6807: ${t.proxyHost}:${t.proxyPort}`),this.log(`
---- \u8BCA\u65AD\u660E\u7EC6 ---`);for(let e of t.steps){let r=e.status==="success"?"\u2713":e.status==="warning"?"!":"\u2717";this.log(` ${r} ${e.name}: ${e.message}`)}this.log(`
-====================================================`),this.log(` \u7ED3\u8BBA: ${t.summary}`),this.log("====================================================")}log(t){this.outputChannel.appendLine(t)}};var x=g(require("vscode")),R=class n{static currentPanel;_panel;_disposables=[];_controller;_diagnostics;static createOrShow(t,e,r){let s=x.window.activeTextEditor?x.window.activeTextEditor.viewColumn:void 0;if(n.currentPanel){n.currentPanel._panel.reveal(s),n.currentPanel.refresh();return}let o=x.window.createWebviewPanel("antigravityRemoteProxySettings","Antigravity \u4EE3\u7406\u8BBE\u7F6E",s||x.ViewColumn.One,{enableScripts:!0,retainContextWhenHidden:!0,localResourceRoots:[t]});n.currentPanel=new n(o,e,r)}constructor(t,e,r){this._panel=t,this._controller=e,this._diagnostics=r,this._update(),this._panel.onDidDispose(()=>this.dispose(),null,this._disposables),this._panel.webview.onDidReceiveMessage(async s=>{switch(s.command){case"save":{let o=(s.host||"127.0.0.1").trim(),a=parseInt(s.port,10)||7897;await this._controller.saveConfig(o,a),x.window.showInformationMessage(`Antigravity \u4EE3\u7406\u914D\u7F6E\u5DF2\u4FDD\u5B58\uFF01\u4EE3\u7406\u76EE\u6807: ${o}:${a}\uFF0CAI \u670D\u52A1\u5DF2\u79D2\u7EA7\u91CD\u8F7D\u3002`),this.postMessage({type:"saveResult",success:!0,message:`\u914D\u7F6E\u5DF2\u6210\u529F\u4FDD\u5B58\uFF01\u5F53\u524D\u751F\u6548: ${o}:${a}`});break}case"toggle":{let o=await this._controller.toggle();this.postMessage({type:"statusUpdate",isEnabled:o});break}case"testConnection":{let o=(s.host||this._controller.getProxyHost()||"127.0.0.1").trim(),a=parseInt(s.port,10)||this._controller.getProxyPort()||7897;this.postMessage({type:"testStarted"});try{let l=await this._diagnostics.testConnection(o,a);this.postMessage({type:"testResult",report:l})}catch(l){this.postMessage({type:"testError",error:l.message})}break}case"restoreRemote":{await this._controller.restoreRemote()?(x.window.showInformationMessage("\u8FDC\u7A0B\u73AF\u5883\u5DF2 100% \u5F7B\u5E95\u590D\u539F\u4E3A\u539F\u751F\u521D\u59CB\u72B6\u6001\uFF01"),this.postMessage({type:"restoreResult",success:!0,message:"\u8FDC\u7A0B\u73AF\u5883\u5DF2\u5F7B\u5E95\u590D\u539F\u4E3A\u521D\u59CB\u539F\u751F\u72B6\u6001\uFF0C\u6240\u6709\u4EE3\u7406\u5305\u88C5\u4E0E\u7EC4\u4EF6\u5DF2\u5B8C\u5168\u6E05\u9664\u3002"})):this.postMessage({type:"restoreResult",success:!1,message:"\u590D\u539F\u8FDC\u7A0B\u73AF\u5883\u5931\u8D25\uFF0C\u8BF7\u67E5\u770B\u65E5\u5FD7\u3002"});break}case"refresh":{this.refresh();break}}},null,this._disposables)}refresh(){let t=this._controller.isEnabled(),e=this._controller.getProxyHost(),r=this._controller.getProxyPort();this.postMessage({type:"initialData",isEnabled:t,proxyHost:e,proxyPort:r})}postMessage(t){this._panel.webview.postMessage(t)}dispose(){for(n.currentPanel=void 0,this._panel.dispose();this._disposables.length;){let t=this._disposables.pop();t&&t.dispose()}}_update(){this._panel.webview.html=this._getHtmlForWebview()}_getHtmlForWebview(){let t=this._controller.isEnabled(),e=this._controller.getProxyHost(),r=this._controller.getProxyPort();return`<!DOCTYPE html>
+rm -f "$HOME/.antigravity-ide-server/bin/agy-proxy"
+rm -f "$HOME/.antigravity-ide-server/proxy.conf"
+rm -f "$HOME/.antigravity-ide-server/proxy.disabled"
+for p in $(pidof agy agy.real 2>/dev/null); do
+    kill -9 "$p" 2>/dev/null || true
+done
+echo "RESTORE_SUCCESS"
+`,1e4)).stdout.includes("RESTORE_SUCCESS")}};var O=class{tunnelManager;deployer;cachedEnabledState=!0;constructor(){this.tunnelManager=new E,this.deployer=new R}getTunnelManager(){return this.tunnelManager}getDeployer(){return this.deployer}detectRemoteHost(){let e=u.workspace.workspaceFolders;if(e&&e.length>0)for(let a of e){let n=a.uri.authority;if(n&&n.startsWith("ssh-remote+"))return decodeURIComponent(n.substring(11))}let t=u.window.activeTextEditor?.document.uri;if(t&&t.authority&&t.authority.startsWith("ssh-remote+"))return decodeURIComponent(t.authority.substring(11));let s=u.workspace.workspaceFile;if(s&&s.authority&&s.authority.startsWith("ssh-remote+"))return decodeURIComponent(s.authority.substring(11));let o=u.workspace.getConfiguration("antigravityRemoteProxy").get("remoteHost","").trim();return o||null}getProxyHost(){return u.workspace.getConfiguration("antigravityRemoteProxy").get("proxyHost","127.0.0.1").trim()||"127.0.0.1"}getProxyPort(){let t=u.workspace.getConfiguration("antigravityRemoteProxy").get("proxyPort",7897);return typeof t=="number"&&t>0&&t<=65535?t:7897}isEnabled(){return this.cachedEnabledState}async syncStatusFromRemote(){let e=this.detectRemoteHost();if(!e)return this.cachedEnabledState;try{let s=await p.execRemote(e,'[ -f "$HOME/.antigravity-ide-server/proxy.disabled" ] && echo "DISABLED" || echo "ENABLED"',4e3);this.cachedEnabledState=!s.stdout.includes("DISABLED")}catch{}return this.cachedEnabledState}async enable(){let e=this.detectRemoteHost(),t=this.getProxyPort();try{e&&(await p.execRemote(e,'rm -f "$HOME/.antigravity-ide-server/proxy.disabled"',4e3),await this.deployer.isDeployed(e)||await this.deployer.deploy(e),await this.tunnelManager.startTunnel(e,t,t),await this.restartAgy(e)),this.cachedEnabledState=!0}catch(s){u.window.showErrorMessage(`\u5F00\u542F\u4EE3\u7406\u5931\u8D25: ${s.message}`)}}async disable(){let e=this.detectRemoteHost();try{e&&(await p.execRemote(e,'mkdir -p "$HOME/.antigravity-ide-server" && touch "$HOME/.antigravity-ide-server/proxy.disabled"',4e3),this.tunnelManager.stopTunnel(),await this.restartAgy(e)),this.cachedEnabledState=!1}catch(t){u.window.showErrorMessage(`\u5173\u95ED\u4EE3\u7406\u5931\u8D25: ${t.message}`)}}async toggle(){return this.isEnabled()?(await this.disable(),!1):(await this.enable(),!0)}async saveConfig(e,t){let s=(e||"127.0.0.1").trim(),r=Number(t)||7897,o=u.workspace.getConfiguration("antigravityRemoteProxy");await o.update("proxyHost",s,u.ConfigurationTarget.Global),await o.update("proxyPort",r,u.ConfigurationTarget.Global);let a=this.detectRemoteHost();if(a){let n=`mkdir -p "$HOME/.antigravity-ide-server" && printf 'PROXY_HOST="%s"\\nPROXY_PORT="%s"\\n' '${s}' '${r}' > "$HOME/.antigravity-ide-server/proxy.conf"`;await p.execRemote(a,n,4e3),this.isEnabled()&&(await this.tunnelManager.startTunnel(a,r,r),await this.restartAgy(a))}}async restoreRemote(){let e=this.detectRemoteHost();if(this.tunnelManager.stopTunnel(),!e)return!0;let t=await this.deployer.restore(e);return this.cachedEnabledState=!1,t}async restartAgy(e){let t=e||this.detectRemoteHost();if(!t)return;await p.execRemote(t,'for p in $(pidof agy agy.real 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done',4e3)}async checkPort(e,t="127.0.0.1",s=1500){let r=this.detectRemoteHost();if(r){let o=`if command -v nc >/dev/null 2>&1; then nc -w 1 -z "${t}" "${e}" 2>/dev/null && echo "OPEN" || echo "CLOSED"; else timeout 1 bash -c "cat < /dev/null > /dev/tcp/${t}/${e}" 2>/dev/null && echo "OPEN" || echo "CLOSED"; fi`;return(await p.execRemote(r,o,s+1e3)).stdout.includes("OPEN")}return new Promise(o=>{let a=new M.Socket;a.setTimeout(s),a.on("connect",()=>{a.destroy(),o(!0)}),a.on("timeout",()=>{a.destroy(),o(!1)}),a.on("error",()=>{a.destroy(),o(!1)}),a.connect(e,t)})}dispose(){this.tunnelManager.dispose()}};var v=h(require("vscode")),S=class{statusBarItem;controller;updateTimer=null;constructor(e){this.controller=e,this.statusBarItem=v.window.createStatusBarItem(v.StatusBarAlignment.Right,100),this.statusBarItem.command="antigravityRemoteProxy.menu"}init(e){e.subscriptions.push(this.statusBarItem),this.update(),this.statusBarItem.show(),this.updateTimer=setInterval(()=>{this.update()},5e3),e.subscriptions.push({dispose:()=>{this.updateTimer&&clearInterval(this.updateTimer)}})}async update(){let e=this.controller.getProxyHost(),t=this.controller.getProxyPort();if(!this.controller.isEnabled()){this.statusBarItem.text="$(circle-slash) AI\u4EE3\u7406: \u7EAF\u76F4\u8FDE",this.statusBarItem.tooltip=`Antigravity \u4EE3\u7406: \u5DF2\u5173\u95ED (\u7EAF\u76F4\u8FDE\u6A21\u5F0F)
+\u76EE\u6807\u4E3B\u673A\u4E0E\u7AEF\u53E3: ${e}:${t}
+\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E\u9762\u677F\u6216\u5207\u6362`,this.statusBarItem.backgroundColor=void 0;return}await this.controller.checkPort(t,e)?(this.statusBarItem.text=`$(plug) AI\u4EE3\u7406: \u5F00\u542F (${t})`,this.statusBarItem.tooltip=`Antigravity \u4EE3\u7406: \u5DF2\u5F00\u542F (\u8D70\u53CD\u5411\u96A7\u9053 ${e}:${t})
+\u96A7\u9053\u72B6\u6001: \u2713 \u6B63\u5E38\u8FDE\u901A
+\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E\u9762\u677F\u6216\u5207\u6362`,this.statusBarItem.backgroundColor=void 0):(this.statusBarItem.text="$(warning) AI\u4EE3\u7406: \u96A7\u9053\u672A\u901A",this.statusBarItem.tooltip=`Antigravity \u4EE3\u7406: \u5DF2\u5F00\u542F\uFF0C\u4F46 ${e}:${t} \u65E0\u6CD5\u8FDE\u901A\uFF01
+\u8BF7\u68C0\u67E5\u672C\u5730 SSH \u914D\u7F6E\u6216\u4EE3\u7406\u8F6F\u4EF6
+\u70B9\u51FB\u6253\u5F00\u8BBE\u7F6E\u9762\u677F\u8FDB\u884C\u6D4B\u8BD5`,this.statusBarItem.backgroundColor=new v.ThemeColor("statusBarItem.warningBackground"))}};var k=h(require("vscode")),_=require("child_process");var H=class{controller;outputChannel;constructor(e){this.controller=e,this.outputChannel=k.window.createOutputChannel("Antigravity Proxy Diagnostics")}async testConnection(e,t){let s=(e||this.controller.getProxyHost()||"127.0.0.1").trim(),r=Number(t)||this.controller.getProxyPort()||7897,o=this.controller.isEnabled(),a=this.controller.detectRemoteHost(),n=[],l=!1,d=Date.now();try{l=await this.controller.checkPort(r,s,2e3);let m=Date.now()-d;l?n.push({name:`\u53CD\u5411\u96A7\u9053\u7AEF\u53E3 (${s}:${r})`,status:"success",latencyMs:m,message:`\u8FDE\u901A\u6B63\u5E38 (TCP \u63E1\u624B\u8017\u65F6 ${m}ms)`}):n.push({name:`\u53CD\u5411\u96A7\u9053\u7AEF\u53E3 (${s}:${r})`,status:"error",latencyMs:m,message:"\u65E0\u6CD5\u5EFA\u7ACB TCP \u63E1\u624B\uFF01\u8BF7\u68C0\u67E5\u672C\u5730\u4EE3\u7406\u5DE5\u5177\u662F\u5426\u542F\u52A8\uFF0C\u4E14\u53CD\u5411\u96A7\u9053\u8FDB\u7A0B\u662F\u5426\u6B63\u5E38\u8FD0\u884C\u3002"})}catch(m){n.push({name:`\u53CD\u5411\u96A7\u9053\u7AEF\u53E3 (${s}:${r})`,status:"error",message:`\u68C0\u6D4B\u5F02\u5E38: ${m.message}`})}let g=l?`-x http://${s}:${r}`:"",b=await this.probeUrl(a,"Google AI \u6838\u5FC3\u63A5\u53E3 (aicode.googleapis.com)","https://aicode.googleapis.com",g);n.push(b);let T=await this.probeUrl(a,"Google \u9065\u6D4B\u670D\u52A1 (play.googleapis.com/log)","https://play.googleapis.com/log",g);n.push(T);let D=await this.probeUrl(a,"Google \u8D26\u53F7\u4EE4\u724C\u8BA4\u8BC1\u63A5\u53E3 (oauth2.googleapis.com/token)","https://oauth2.googleapis.com/token",g);n.push(D);let x="success",w="\u{1F389} \u4EE3\u7406\u901A\u9053\u7545\u901A\uFF0CGoogle AI \u4E0E\u8D26\u53F7\u8BA4\u8BC1\u63A5\u53E3\u8FDE\u901A\u6B63\u5E38\uFF01",A=n.some(m=>m.status==="error"),F=n.some(m=>m.status==="success");return l?A&&(F?(x="warning",w="\u26A0\uFE0F \u90E8\u5206 Google \u670D\u52A1\u54CD\u5E94\u5F02\u5E38\uFF0C\u8BF7\u68C0\u67E5\u8282\u70B9\u89C4\u5219\u6216\u91CD\u8BD5\u3002"):(x="error",w="\u274C \u65E0\u6CD5\u8BBF\u95EE Google \u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u672C\u5730\u4EE3\u7406\u89C4\u5219\u4E0E\u8282\u70B9\u53EF\u7528\u6027\u3002")):(x="error",w=`\u274C \u53CD\u5411\u96A7\u9053\u672A\u8FDE\u901A (${s}:${r})\uFF0C\u8BF7\u68C0\u67E5\u672C\u5730\u4EE3\u7406\u53CA\u52A8\u6001\u96A7\u9053\u72B6\u6001\u3002`),{timestamp:new Date().toLocaleTimeString(),proxyHost:s,proxyPort:r,isEnabled:o,tunnelReachable:l,steps:n,overallStatus:x,summary:w}}async probeUrl(e,t,s,r){let o=Date.now(),a=`curl -sI -m 6 ${r} "${s}"`;if(e){let n=await p.execRemote(e,a,8e3),l=Date.now()-o;if(n.exitCode!==0&&!n.stdout.includes("HTTP/")){let d=n.stderr.trim()||`Exit code ${n.exitCode}`;return{name:t,status:"error",latencyMs:l,message:`\u8BF7\u6C42\u5931\u8D25 (${l}ms): ${d.slice(0,100)}`}}return this.evaluateCurlOutput(t,n.stdout,l)}return new Promise(n=>{(0,_.exec)(a,(l,d,g)=>{let b=Date.now()-o;if(l){let T=g?g.trim():l.message.trim();n({name:t,status:"error",latencyMs:b,message:`\u8BF7\u6C42\u5931\u8D25 (${b}ms): ${T.slice(0,100)}`});return}n(this.evaluateCurlOutput(t,d,b))})})}evaluateCurlOutput(e,t,s){let o=t.split(`
+`).map(n=>n.trim()).filter(Boolean)[0]||"",a=t.includes("server: ESF")||t.includes("Server: ESF")||t.includes("200 Connection established")||t.includes("HTTPServer2");return o.includes("200")||o.includes("404")||o.includes("405")||a?{name:e,status:"success",latencyMs:s,message:`\u8BBF\u95EE\u6B63\u5E38 (${o||"HTTP 200"}, \u8017\u65F6 ${s}ms)`}:o.includes("403")?{name:e,status:"error",latencyMs:s,message:"\u8FD4\u56DE 403 Forbidden\uFF08\u53D7\u5730\u57DF\u9650\u5236\u963B\u6B62\uFF0C\u8BF7\u5207\u6362\u652F\u6301 Google AI \u7684\u4EE3\u7406\u8282\u70B9\uFF09"}:{name:e,status:"warning",latencyMs:s,message:`\u8FD4\u56DE\u72B6\u6001: ${o||"\u672A\u77E5"} (${s}ms)`}}async run(){this.outputChannel.clear(),this.outputChannel.show(!0),this.log("===================================================="),this.log(" Antigravity Remote Proxy - \u7F51\u7EDC\u8FDE\u901A\u6027\u8BCA\u65AD\u62A5\u544A"),this.log(` \u65F6\u95F4: ${new Date().toLocaleString()}`),this.log(`====================================================
+`);let e=await this.testConnection();this.log(`[1] \u4EE3\u7406\u5F00\u5173: ${e.isEnabled?"\u3010\u5DF2\u5F00\u542F (ON)\u3011":"\u3010\u5DF2\u5173\u95ED (OFF - \u7EAF\u76F4\u8FDE)\u3011"}`),this.log(`[2] \u4EE3\u7406\u76EE\u6807: ${e.proxyHost}:${e.proxyPort}`),this.log(`
+--- \u8BCA\u65AD\u660E\u7EC6 ---`);for(let t of e.steps){let s=t.status==="success"?"\u2713":t.status==="warning"?"!":"\u2717";this.log(` ${s} ${t.name}: ${t.message}`)}this.log(`
+====================================================`),this.log(` \u7ED3\u8BBA: ${e.summary}`),this.log("====================================================")}log(e){this.outputChannel.appendLine(e)}};var y=h(require("vscode")),f=class i{static currentPanel;_panel;_disposables=[];_controller;_diagnostics;static createOrShow(e,t,s){let r=y.window.activeTextEditor?y.window.activeTextEditor.viewColumn:void 0;if(i.currentPanel){i.currentPanel._panel.reveal(r),i.currentPanel.refresh();return}let o=y.window.createWebviewPanel("antigravityRemoteProxySettings","Antigravity \u4EE3\u7406\u8BBE\u7F6E",r||y.ViewColumn.One,{enableScripts:!0,retainContextWhenHidden:!0,localResourceRoots:[e]});i.currentPanel=new i(o,t,s)}constructor(e,t,s){this._panel=e,this._controller=t,this._diagnostics=s,this._update(),this._panel.onDidDispose(()=>this.dispose(),null,this._disposables),this._panel.webview.onDidReceiveMessage(async r=>{switch(r.command){case"save":{let o=(r.host||"127.0.0.1").trim(),a=parseInt(r.port,10)||7897;await this._controller.saveConfig(o,a),y.window.showInformationMessage(`Antigravity \u4EE3\u7406\u914D\u7F6E\u5DF2\u4FDD\u5B58\uFF01\u4EE3\u7406\u76EE\u6807: ${o}:${a}\uFF0CAI \u670D\u52A1\u5DF2\u79D2\u7EA7\u91CD\u8F7D\u3002`),this.postMessage({type:"saveResult",success:!0,message:`\u914D\u7F6E\u5DF2\u6210\u529F\u4FDD\u5B58\uFF01\u5F53\u524D\u751F\u6548: ${o}:${a}`});break}case"toggle":{let o=await this._controller.toggle();this.postMessage({type:"statusUpdate",isEnabled:o});break}case"testConnection":{let o=(r.host||this._controller.getProxyHost()||"127.0.0.1").trim(),a=parseInt(r.port,10)||this._controller.getProxyPort()||7897;this.postMessage({type:"testStarted"});try{let n=await this._diagnostics.testConnection(o,a);this.postMessage({type:"testResult",report:n})}catch(n){this.postMessage({type:"testError",error:n.message})}break}case"restoreRemote":{await this._controller.restoreRemote()?(y.window.showInformationMessage("\u8FDC\u7A0B\u73AF\u5883\u5DF2 100% \u5F7B\u5E95\u590D\u539F\u4E3A\u539F\u751F\u521D\u59CB\u72B6\u6001\uFF01"),this.postMessage({type:"restoreResult",success:!0,message:"\u8FDC\u7A0B\u73AF\u5883\u5DF2\u5F7B\u5E95\u590D\u539F\u4E3A\u521D\u59CB\u539F\u751F\u72B6\u6001\uFF0C\u6240\u6709\u4EE3\u7406\u5305\u88C5\u4E0E\u7EC4\u4EF6\u5DF2\u5B8C\u5168\u6E05\u9664\u3002"})):this.postMessage({type:"restoreResult",success:!1,message:"\u590D\u539F\u8FDC\u7A0B\u73AF\u5883\u5931\u8D25\uFF0C\u8BF7\u67E5\u770B\u65E5\u5FD7\u3002"});break}case"refresh":{this.refresh();break}}},null,this._disposables)}refresh(){let e=this._controller.isEnabled(),t=this._controller.getProxyHost(),s=this._controller.getProxyPort();this.postMessage({type:"initialData",isEnabled:e,proxyHost:t,proxyPort:s})}postMessage(e){this._panel.webview.postMessage(e)}dispose(){for(i.currentPanel=void 0,this._panel.dispose();this._disposables.length;){let e=this._disposables.pop();e&&e.dispose()}}_update(){this._panel.webview.html=this._getHtmlForWebview()}_getHtmlForWebview(){let e=this._controller.isEnabled(),t=this._controller.getProxyHost(),s=this._controller.getProxyPort(),r=this._controller.detectRemoteHost()||"\u672C\u5730\u5DE5\u4F5C\u533A (\u672A\u8FDE\u63A5\u8FDC\u7A0B SSH)";return`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -449,15 +458,20 @@ exec "$HOME/.gemini/bin/agy.real" "$@"
 <body>
   <div class="container">
     <div class="header">
-      <div class="header-title">
-        <span>\u26A1 Antigravity \u4EE3\u7406\u4E0E\u7F51\u7EDC\u4E2D\u5FC3</span>
-        <span id="headerStatusBadge" class="header-badge ${t?"badge-on":"badge-off"}">
-          ${t?"\u25CF \u4EE3\u7406\u6A21\u5F0F\u5DF2\u5F00\u542F":"\u25CB \u7EAF\u76F4\u8FDE\u6A21\u5F0F"}
-        </span>
+      <div>
+        <div class="header-title">
+          <span>\u26A1 Antigravity \u4EE3\u7406\u4E0E\u7F51\u7EDC\u4E2D\u5FC3</span>
+          <span id="headerStatusBadge" class="header-badge ${e?"badge-on":"badge-off"}">
+            ${e?"\u25CF \u4EE3\u7406\u6A21\u5F0F\u5DF2\u5F00\u542F":"\u25CB \u7EAF\u76F4\u8FDE\u6A21\u5F0F"}
+          </span>
+        </div>
+        <div style="margin-top: 6px; font-size: 11px; opacity: 0.8; font-family: var(--font-mono);">
+          <span>\u{1F310} \u5F53\u524D\u76EE\u6807\u4E3B\u673A: <strong>${r}</strong></span>
+        </div>
       </div>
       <div>
         <button id="toggleBtn" class="btn-secondary" onclick="toggleProxy()">
-          ${t?"\u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE (OFF)":"\u5207\u6362\u4E3A\u4EE3\u7406\u6A21\u5F0F (ON)"}
+          ${e?"\u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE (OFF)":"\u5207\u6362\u4E3A\u4EE3\u7406\u6A21\u5F0F (ON)"}
         </button>
       </div>
     </div>
@@ -473,14 +487,14 @@ exec "$HOME/.gemini/bin/agy.real" "$@"
         <div class="form-col">
           <div class="form-group">
             <label for="proxyHost">\u4EE3\u7406\u4E3B\u673A (Proxy Host)</label>
-            <input type="text" id="proxyHost" value="${e}" placeholder="127.0.0.1" />
+            <input type="text" id="proxyHost" value="${t}" placeholder="127.0.0.1" />
             <div class="field-hint">SSH \u53CD\u5411\u96A7\u9053\u76D1\u542C\u7684\u4E3B\u673A\u5730\u5740 (\u901A\u5E38\u4E3A 127.0.0.1)</div>
           </div>
         </div>
         <div class="form-col">
           <div class="form-group">
             <label for="proxyPort">\u4EE3\u7406\u7AEF\u53E3 (Proxy Port)</label>
-            <input type="number" id="proxyPort" value="${r}" placeholder="7897" min="1" max="65535" />
+            <input type="number" id="proxyPort" value="${s}" placeholder="7897" min="1" max="65535" />
             <div class="field-hint">\u672C\u5730 Clash/\u4EE3\u7406\u6620\u5C04\u5230\u8FDC\u7AEF\u7684\u7AEF\u53E3 (\u5982 7897)</div>
           </div>
         </div>
@@ -501,12 +515,12 @@ exec "$HOME/.gemini/bin/agy.real" "$@"
     <!-- Diagnostics / Connection Test -->
     <div class="card">
       <div class="card-title">
-        <span>\u{1F50D} \u7F51\u7EDC\u8FDE\u901A\u6027\u6D4B\u8BD5</span>
-        <span style="font-size: 11px; font-weight: normal; opacity: 0.7;">\u5168\u9762\u6D4B\u8BD5 SSH \u96A7\u9053\u4E0E Google AI \u670D\u52A1</span>
+        <span>\u{1F50D} \u771F\u5B9E\u7F51\u7EDC\u8FDE\u901A\u6027\u6D4B\u8BD5 (Remote Test)</span>
+        <span style="font-size: 11px; font-weight: normal; opacity: 0.7;">\u8FDC\u7A0B\u5BB9\u5668\u76F4\u6D4B\uFF1ASSH \u96A7\u9053\u3001Google AI\u3001OAuth \u8BA4\u8BC1</span>
       </div>
 
       <p style="font-size: 12px; opacity: 0.8; margin-bottom: 14px;">
-        \u70B9\u51FB\u201C\u8FDE\u63A5\u6D4B\u8BD5\u201D\u6309\u94AE\uFF0C\u5C06\u9488\u5BF9\u5F53\u524D\u8F93\u5165\u7684\u4E3B\u673A\u4E0E\u7AEF\u53E3\uFF0C\u5B9E\u65F6\u68C0\u6D4B SSH \u53CD\u5411\u96A7\u9053\u8FDE\u901A\u6027\u3001Google AI (aicode) \u63A5\u53E3\u4E0E\u9065\u6D4B\u670D\u52A1\u7684 HTTP \u72B6\u6001\u548C\u6BEB\u79D2\u5EF6\u8FDF\u3002
+        \u70B9\u51FB\u201C\u91CD\u65B0\u6D4B\u8BD5\u201D\u6309\u94AE\uFF0C\u5C06\u5728<strong>\u8FDC\u7A0B\u5BB9\u5668\u5185\u90E8</strong>\u5B9E\u65F6\u68C0\u6D4B SSH \u53CD\u5411\u96A7\u9053\u8FDE\u901A\u6027\u3001Google AI (aicode) \u6838\u5FC3\u63A5\u53E3\u3001\u9065\u6D4B\u670D\u52A1\u4E0E <strong>Google OAuth \u8D26\u53F7\u8BA4\u8BC1\u63A5\u53E3</strong>\u7684\u771F\u5B9E HTTP \u72B6\u6001\u548C\u6BEB\u79D2\u5EF6\u8FDF\u3002
       </p>
 
       <div class="btn-group">
@@ -545,7 +559,7 @@ exec "$HOME/.gemini/bin/agy.real" "$@"
   <script>
     const vscode = acquireVsCodeApi();
 
-    let currentEnabled = ${t};
+    let currentEnabled = ${e};
 
     function saveSettings() {
       const hostInput = document.getElementById('proxyHost');
@@ -730,4 +744,4 @@ exec "$HOME/.gemini/bin/agy.real" "$@"
     }
   </script>
 </body>
-</html>`}};function q(n){let t=new I,e=new E(t),r=new O,s=new k(t);c.env.remoteName&&c.workspace.getConfiguration("antigravityRemoteProxy").get("autoSetup",!0)&&!r.isDeployed()&&r.deploy().then(l=>{l&&e.update()}),e.init(n),n.subscriptions.push(c.commands.registerCommand("antigravityRemoteProxy.openSettings",()=>{R.createOrShow(n.extensionUri,t,s)}),c.commands.registerCommand("antigravityRemoteProxy.menu",async()=>{let o=t.isEnabled(),a=t.getProxyHost(),l=t.getProxyPort(),y=[{label:"$(gear) \u6253\u5F00\u4EE3\u7406\u914D\u7F6E\u4E0E\u8FDE\u901A\u6D4B\u8BD5\u9762\u677F (Settings & Test)",description:`\u4FEE\u6539\u4E3B\u673A(${a})\u4E0E\u7AEF\u53E3(${l})\uFF0C\u8FDB\u884C\u7F51\u7EDC\u8FDE\u901A\u6027\u6D4B\u8BD5`,action:"settings"},{label:o?"$(circle-slash) \u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE\u6A21\u5F0F (Disable Proxy)":"$(plug) \u5207\u6362\u4E3A\u4EE3\u7406\u52A0\u901F\u6A21\u5F0F (Enable Proxy)",description:o?"\u5173\u95ED\u4EE3\u7406\uFF0CAI \u6838\u5FC3\u8D70\u8FDC\u7A0B\u670D\u52A1\u5668\u672C\u5730\u76F4\u8FDE":`\u5F00\u542F\u4EE3\u7406\uFF0CAI \u6838\u5FC3\u8D70\u672C\u5730 ${a}:${l} \u96A7\u9053\u52A0\u901F`,action:"toggle"},{label:"$(checklist) \u8FD0\u884C\u7F51\u7EDC\u8FDE\u901A\u6027\u8BCA\u65AD (Run Diagnostics)",description:"\u6D4B\u8BD5 SSH \u53CD\u5411\u96A7\u9053\u4E0E Google AI \u63A5\u53E3\u8BE6\u7EC6\u72B6\u6001",action:"diagnose"}],u=await c.window.showQuickPick(y,{placeHolder:`Antigravity \u4EE3\u7406\u5FEB\u6377\u83DC\u5355 (\u5F53\u524D: ${o?"\u5DF2\u5F00\u542F":"\u7EAF\u76F4\u8FDE"})`});if(u)if(u.action==="settings")R.createOrShow(n.extensionUri,t,s);else if(u.action==="toggle"){let m=await t.toggle();await e.update(),c.window.showInformationMessage(m?"Antigravity \u4EE3\u7406: \u5DF2\u3010\u5F00\u542F (ON)\u3011\uFF0C\u6B63\u5728\u8D70\u672C\u5730\u53CD\u5411\u96A7\u9053\u3002":"Antigravity \u4EE3\u7406: \u5DF2\u3010\u5173\u95ED (OFF)\u3011\uFF0C\u5DF2\u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE\u6A21\u5F0F\u3002")}else u.action==="diagnose"&&await s.run()}),c.commands.registerCommand("antigravityRemoteProxy.toggle",async()=>{let o=await t.toggle();await e.update(),o?c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5F00\u542F (ON)\u3011\uFF0C\u6B63\u5728\u8D70\u672C\u5730\u53CD\u5411\u96A7\u9053\u3002"):c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5173\u95ED (OFF)\u3011\uFF0C\u5DF2\u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE\u6A21\u5F0F\u3002")}),c.commands.registerCommand("antigravityRemoteProxy.enable",async()=>{await t.enable(),await e.update(),c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5F00\u542F (ON)\u3011\u3002")}),c.commands.registerCommand("antigravityRemoteProxy.disable",async()=>{await t.disable(),await e.update(),c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5173\u95ED (OFF)\u3011\uFF08\u7EAF\u76F4\u8FDE\uFF09\u3002")}),c.commands.registerCommand("antigravityRemoteProxy.status",async()=>{let o=t.isEnabled(),a=t.getProxyHost(),l=t.getProxyPort(),y=await t.checkPort(l,a),u=o?`\u5F53\u524D\u72B6\u6001: \u3010\u5DF2\u5F00\u542F (ON)\u3011 | \u96A7\u9053\u7AEF\u53E3 ${a}:${l}: ${y?"\u2713 \u8FDE\u901A\u6B63\u5E38":"\u2717 \u672A\u8FDE\u901A"}`:"\u5F53\u524D\u72B6\u6001: \u3010\u5DF2\u5173\u95ED (OFF)\u3011 | \u7EAF\u76F4\u8FDE\u6A21\u5F0F";c.window.showInformationMessage(u),await e.update()}),c.commands.registerCommand("antigravityRemoteProxy.diagnose",async()=>{await s.run()}),c.commands.registerCommand("antigravityRemoteProxy.setupRemote",async()=>{await r.deploy()&&(c.window.showInformationMessage("Antigravity \u8FDC\u7AEF\u4EE3\u7406\u7EC4\u4EF6\u5DF2\u6210\u529F\u90E8\u7F72\uFF01"),await e.update())}),c.commands.registerCommand("antigravityRemoteProxy.restore",async()=>{await t.restoreRemote()&&(c.window.showInformationMessage("\u8FDC\u7A0B\u73AF\u5883\u5DF2 100% \u5F7B\u5E95\u590D\u539F\u4E3A\u521D\u59CB\u7EAF\u51C0\u72B6\u6001\uFF01"),await e.update())}),t)}function J(){}0&&(module.exports={activate,deactivate});
+</html>`}};function W(i){let e=new O,t=new S(e),s=e.getDeployer(),r=new H(e);if(c.env.remoteName){let a=c.workspace.getConfiguration("antigravityRemoteProxy").get("autoSetup",!0),n=e.detectRemoteHost();n&&a&&(async()=>{try{if(await e.syncStatusFromRemote(),await s.isDeployed(n)||await s.deploy(n),e.isEnabled()){let d=e.getProxyPort();await e.getTunnelManager().startTunnel(n,d,d),await e.restartAgy(n)}await t.update()}catch{}})()}t.init(i),i.subscriptions.push(c.commands.registerCommand("antigravityRemoteProxy.openSettings",()=>{f.createOrShow(i.extensionUri,e,r)}),c.commands.registerCommand("antigravityRemoteProxy.menu",async()=>{let o=e.isEnabled(),a=e.getProxyHost(),n=e.getProxyPort(),l=e.detectRemoteHost()||"\u672A\u68C0\u6D4B\u5230\u8FDC\u7A0B\u4E3B\u673A",d=[{label:"$(gear) \u6253\u5F00\u4EE3\u7406\u914D\u7F6E\u4E0E\u8FDE\u901A\u6D4B\u8BD5\u9762\u677F (Settings & Test)",description:`\u4FEE\u6539\u4E3B\u673A(${a})\u4E0E\u7AEF\u53E3(${n})\uFF0C\u8FDB\u884C\u7F51\u7EDC\u8FDE\u901A\u6027\u6D4B\u8BD5 [\u76EE\u6807: ${l}]`,action:"settings"},{label:o?"$(circle-slash) \u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE\u6A21\u5F0F (Disable Proxy)":"$(plug) \u5207\u6362\u4E3A\u4EE3\u7406\u52A0\u901F\u6A21\u5F0F (Enable Proxy)",description:o?"\u5173\u95ED\u4EE3\u7406\uFF0CAI \u6838\u5FC3\u8D70\u8FDC\u7A0B\u670D\u52A1\u5668\u672C\u5730\u76F4\u8FDE":`\u5F00\u542F\u4EE3\u7406\uFF0CAI \u6838\u5FC3\u8D70\u672C\u5730 ${a}:${n} \u96A7\u9053\u52A0\u901F`,action:"toggle"},{label:"$(checklist) \u8FD0\u884C\u7F51\u7EDC\u8FDE\u901A\u6027\u8BCA\u65AD (Run Diagnostics)",description:"\u6D4B\u8BD5 SSH \u53CD\u5411\u96A7\u9053\u3001Google AI \u63A5\u53E3\u4E0E OAuth \u4EE4\u724C\u63A5\u53E3\u8BE6\u7EC6\u72B6\u6001",action:"diagnose"}],g=await c.window.showQuickPick(d,{placeHolder:`Antigravity \u4EE3\u7406\u5FEB\u6377\u83DC\u5355 (\u5F53\u524D: ${o?"\u5DF2\u5F00\u542F":"\u7EAF\u76F4\u8FDE"} | \u4E3B\u673A: ${l})`});if(g)if(g.action==="settings")f.createOrShow(i.extensionUri,e,r);else if(g.action==="toggle"){let b=await e.toggle();await t.update(),c.window.showInformationMessage(b?"Antigravity \u4EE3\u7406: \u5DF2\u3010\u5F00\u542F (ON)\u3011\uFF0C\u6B63\u5728\u8D70\u672C\u5730\u53CD\u5411\u96A7\u9053\u3002":"Antigravity \u4EE3\u7406: \u5DF2\u3010\u5173\u95ED (OFF)\u3011\uFF0C\u5DF2\u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE\u6A21\u5F0F\u3002")}else g.action==="diagnose"&&await r.run()}),c.commands.registerCommand("antigravityRemoteProxy.toggle",async()=>{let o=await e.toggle();await t.update(),o?c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5F00\u542F (ON)\u3011\uFF0C\u6B63\u5728\u8D70\u672C\u5730\u53CD\u5411\u96A7\u9053\u3002"):c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5173\u95ED (OFF)\u3011\uFF0C\u5DF2\u5207\u6362\u4E3A\u7EAF\u76F4\u8FDE\u6A21\u5F0F\u3002")}),c.commands.registerCommand("antigravityRemoteProxy.enable",async()=>{await e.enable(),await t.update(),c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5F00\u542F (ON)\u3011\u3002")}),c.commands.registerCommand("antigravityRemoteProxy.disable",async()=>{await e.disable(),await t.update(),c.window.showInformationMessage("Antigravity \u4EE3\u7406: \u5DF2\u3010\u5173\u95ED (OFF)\u3011\uFF08\u7EAF\u76F4\u8FDE\uFF09\u3002")}),c.commands.registerCommand("antigravityRemoteProxy.status",async()=>{let o=e.isEnabled(),a=e.getProxyHost(),n=e.getProxyPort(),l=await e.checkPort(n,a),d=e.detectRemoteHost()||"\u672C\u5730",g=o?`[${d}] \u5F53\u524D\u72B6\u6001: \u3010\u5DF2\u5F00\u542F (ON)\u3011 | \u96A7\u9053\u7AEF\u53E3 ${a}:${n}: ${l?"\u2713 \u8FDE\u901A\u6B63\u5E38":"\u2717 \u672A\u8FDE\u901A"}`:`[${d}] \u5F53\u524D\u72B6\u6001: \u3010\u5DF2\u5173\u95ED (OFF)\u3011 | \u7EAF\u76F4\u8FDE\u6A21\u5F0F`;c.window.showInformationMessage(g),await t.update()}),c.commands.registerCommand("antigravityRemoteProxy.setupRemote",async()=>{let o=e.detectRemoteHost();if(!o){c.window.showWarningMessage("\u672A\u68C0\u6D4B\u5230\u8FDC\u7A0B SSH \u4E3B\u673A\u3002");return}await s.deploy(o)&&(c.window.showInformationMessage("Antigravity \u8FDC\u7AEF\u4EE3\u7406\u7EC4\u4EF6\u5DF2\u6210\u529F\u90E8\u7F72\uFF01"),await t.update())}),c.commands.registerCommand("antigravityRemoteProxy.restore",async()=>{await e.restoreRemote()&&(c.window.showInformationMessage("\u8FDC\u7A0B\u73AF\u5883\u5DF2 100% \u5F7B\u5E95\u590D\u539F\u4E3A\u521D\u59CB\u7EAF\u51C0\u72B6\u6001\uFF01"),await t.update())}),e)}function j(){}0&&(module.exports={activate,deactivate});

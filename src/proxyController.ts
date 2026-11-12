@@ -1,120 +1,144 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import * as net from 'net';
-import { exec } from 'child_process';
 import * as vscode from 'vscode';
 import { TunnelManager } from './tunnelManager';
+import { SshBridge } from './sshBridge';
+import { RemoteDeployer } from './remoteDeployer';
 
 export class ProxyController implements vscode.Disposable {
-  private serverDir: string;
-  private disabledFlagPath: string;
-  private confFilePath: string;
-  private geminiBinDir: string;
-  private agyPath: string;
-  private agyRealPath: string;
   private tunnelManager: TunnelManager;
+  private deployer: RemoteDeployer;
+  private cachedEnabledState: boolean = true;
 
   constructor() {
-    const homeDir = os.homedir();
-    this.serverDir = path.join(homeDir, '.antigravity-ide-server');
-    this.disabledFlagPath = path.join(this.serverDir, 'proxy.disabled');
-    this.confFilePath = path.join(this.serverDir, 'proxy.conf');
-    this.geminiBinDir = path.join(homeDir, '.gemini', 'bin');
-    this.agyPath = path.join(this.geminiBinDir, 'agy');
-    this.agyRealPath = path.join(this.geminiBinDir, 'agy.real');
     this.tunnelManager = new TunnelManager();
+    this.deployer = new RemoteDeployer();
   }
 
   public getTunnelManager(): TunnelManager {
     return this.tunnelManager;
   }
 
-  public getProxyHost(): string {
-    const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
-    let host = config.get<string>('proxyHost', '127.0.0.1');
+  public getDeployer(): RemoteDeployer {
+    return this.deployer;
+  }
 
-    try {
-      if (fs.existsSync(this.confFilePath)) {
-        const raw = fs.readFileSync(this.confFilePath, 'utf8');
-        const match = raw.match(/PROXY_HOST=["']?([^"'\s\r\n]+)["']?/);
-        if (match && match[1]) {
-          host = match[1];
+  /**
+   * Auto-detect remote host alias from VS Code remote workspace.
+   */
+  public detectRemoteHost(): string | null {
+    // 1. Check workspace folders authority (e.g. ssh-remote+10.192.41.183-container-p6680-antigravity-plugin)
+    const folders = vscode.workspace.workspaceFolders;
+    if (folders && folders.length > 0) {
+      for (const f of folders) {
+        const auth = f.uri.authority;
+        if (auth && auth.startsWith('ssh-remote+')) {
+          return decodeURIComponent(auth.substring('ssh-remote+'.length));
         }
       }
-    } catch {
-      // Ignore read errors, fallback to config
     }
 
-    return host;
+    // 2. Check active text editor document authority
+    const editorUri = vscode.window.activeTextEditor?.document.uri;
+    if (editorUri && editorUri.authority && editorUri.authority.startsWith('ssh-remote+')) {
+      return decodeURIComponent(editorUri.authority.substring('ssh-remote+'.length));
+    }
+
+    // 3. Check workspace file authority
+    const wsFile = vscode.workspace.workspaceFile;
+    if (wsFile && wsFile.authority && wsFile.authority.startsWith('ssh-remote+')) {
+      return decodeURIComponent(wsFile.authority.substring('ssh-remote+'.length));
+    }
+
+    // 4. Fallback to user-configured remote host
+    const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
+    const configured = config.get<string>('remoteHost', '').trim();
+    if (configured) {
+      return configured;
+    }
+
+    return null;
+  }
+
+  public getProxyHost(): string {
+    const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
+    return config.get<string>('proxyHost', '127.0.0.1').trim() || '127.0.0.1';
   }
 
   public getProxyPort(): number {
     const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
-    let port = config.get<number>('proxyPort', 7897);
-
-    try {
-      if (fs.existsSync(this.confFilePath)) {
-        const raw = fs.readFileSync(this.confFilePath, 'utf8');
-        const match = raw.match(/PROXY_PORT=["']?([0-9]+)["']?/);
-        if (match && match[1]) {
-          const parsed = parseInt(match[1], 10);
-          if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) {
-            port = parsed;
-          }
-        }
-      }
-    } catch {
-      // Ignore read errors, fallback to config
-    }
-
-    return port;
+    const port = config.get<number>('proxyPort', 7897);
+    return typeof port === 'number' && port > 0 && port <= 65535 ? port : 7897;
   }
 
   public isEnabled(): boolean {
-    try {
-      return !fs.existsSync(this.disabledFlagPath);
-    } catch {
-      return true;
+    return this.cachedEnabledState;
+  }
+
+  /**
+   * Sync enabled state and configuration from remote container.
+   */
+  public async syncStatusFromRemote(): Promise<boolean> {
+    const host = this.detectRemoteHost();
+    if (!host) {
+      return this.cachedEnabledState;
     }
+
+    try {
+      const checkCmd = `[ -f "$HOME/.antigravity-ide-server/proxy.disabled" ] && echo "DISABLED" || echo "ENABLED"`;
+      const res = await SshBridge.execRemote(host, checkCmd, 4000);
+      this.cachedEnabledState = !res.stdout.includes('DISABLED');
+    } catch {
+      // Keep cached state on error
+    }
+
+    return this.cachedEnabledState;
   }
 
   public async enable(): Promise<void> {
+    const host = this.detectRemoteHost();
+    const port = this.getProxyPort();
+
     try {
-      if (fs.existsSync(this.disabledFlagPath)) {
-        fs.unlinkSync(this.disabledFlagPath);
-      }
+      if (host) {
+        // 1. Remove remote disabled flag
+        await SshBridge.execRemote(host, 'rm -f "$HOME/.antigravity-ide-server/proxy.disabled"', 4000);
 
-      // Check if tunnel is needed
-      const port = this.getProxyPort();
-      const host = this.getProxyHost();
-      const isListening = await this.checkPort(port, host, 1000);
-      if (!isListening) {
-        // Attempt dynamic background tunnel if remoteHost configured
-        const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
-        const remoteHost = config.get<string>('remoteHost', '');
-        if (remoteHost) {
-          await this.tunnelManager.startTunnel(remoteHost, port);
+        // 2. Ensure remote wrapper is deployed
+        const isDeployed = await this.deployer.isDeployed(host);
+        if (!isDeployed) {
+          await this.deployer.deploy(host);
         }
+
+        // 3. Start dynamic local tunnel to remote host
+        await this.tunnelManager.startTunnel(host, port, port);
+
+        // 4. Restart agy on remote container
+        await this.restartAgy(host);
       }
 
-      await this.restartAgy();
+      this.cachedEnabledState = true;
     } catch (err: any) {
       vscode.window.showErrorMessage(`开启代理失败: ${err.message}`);
     }
   }
 
   public async disable(): Promise<void> {
+    const host = this.detectRemoteHost();
+
     try {
-      if (!fs.existsSync(this.serverDir)) {
-        fs.mkdirSync(this.serverDir, { recursive: true });
+      if (host) {
+        // 1. Create remote disabled flag
+        const cmd = 'mkdir -p "$HOME/.antigravity-ide-server" && touch "$HOME/.antigravity-ide-server/proxy.disabled"';
+        await SshBridge.execRemote(host, cmd, 4000);
+
+        // 2. Stop local dynamic tunnel
+        this.tunnelManager.stopTunnel();
+
+        // 3. Restart agy on remote container (switches to 100% direct connection)
+        await this.restartAgy(host);
       }
-      fs.writeFileSync(this.disabledFlagPath, '');
 
-      // Stop dynamic tunnel if active
-      this.tunnelManager.stopTunnel();
-
-      await this.restartAgy();
+      this.cachedEnabledState = false;
     } catch (err: any) {
       vscode.window.showErrorMessage(`关闭代理失败: ${err.message}`);
     }
@@ -139,68 +163,57 @@ export class ProxyController implements vscode.Disposable {
     await config.update('proxyHost', trimmedHost, vscode.ConfigurationTarget.Global);
     await config.update('proxyPort', portNum, vscode.ConfigurationTarget.Global);
 
-    // 2. Write to ~/.antigravity-ide-server/proxy.conf
-    try {
-      if (!fs.existsSync(this.serverDir)) {
-        fs.mkdirSync(this.serverDir, { recursive: true });
-      }
-      const confContent = `PROXY_HOST="${trimmedHost}"\nPROXY_PORT="${portNum}"\n`;
-      fs.writeFileSync(this.confFilePath, confContent, 'utf8');
-    } catch (err: any) {
-      vscode.window.showWarningMessage(`写入配置文件失败: ${err.message}`);
-    }
+    // 2. Update remote container proxy.conf
+    const remoteHost = this.detectRemoteHost();
+    if (remoteHost) {
+      const remoteCmd = `mkdir -p "$HOME/.antigravity-ide-server" && printf 'PROXY_HOST="%s"\\nPROXY_PORT="%s"\\n' '${trimmedHost}' '${portNum}' > "$HOME/.antigravity-ide-server/proxy.conf"`;
+      await SshBridge.execRemote(remoteHost, remoteCmd, 4000);
 
-    // 3. Restart agy process
-    await this.restartAgy();
+      // 3. If currently enabled, ensure tunnel and restart agy
+      if (this.isEnabled()) {
+        await this.tunnelManager.startTunnel(remoteHost, portNum, portNum);
+        await this.restartAgy(remoteHost);
+      }
+    }
   }
 
   public async restoreRemote(): Promise<boolean> {
-    try {
-      // 1. Stop dynamic tunnel
-      this.tunnelManager.stopTunnel();
+    const host = this.detectRemoteHost();
+    // 1. Stop local dynamic tunnel
+    this.tunnelManager.stopTunnel();
 
-      // 2. If agy.real exists, restore it back to agy
-      if (fs.existsSync(this.agyRealPath)) {
-        if (fs.existsSync(this.agyPath)) {
-          fs.unlinkSync(this.agyPath);
-        }
-        fs.renameSync(this.agyRealPath, this.agyPath);
-      }
-
-      // 3. Remove proxy.disabled and proxy.conf
-      if (fs.existsSync(this.disabledFlagPath)) {
-        fs.unlinkSync(this.disabledFlagPath);
-      }
-      if (fs.existsSync(this.confFilePath)) {
-        fs.unlinkSync(this.confFilePath);
-      }
-
-      // 4. Remove agy-proxy if exists
-      const agyProxy = path.join(this.serverDir, 'bin', 'agy-proxy');
-      if (fs.existsSync(agyProxy)) {
-        fs.unlinkSync(agyProxy);
-      }
-
-      // 5. Restart agy so it runs completely original binary
-      await this.restartAgy();
+    if (!host) {
       return true;
-    } catch (err: any) {
-      vscode.window.showErrorMessage(`完全复原远程环境失败: ${err.message}`);
-      return false;
     }
+
+    // 2. Clean restore remote environment
+    const success = await this.deployer.restore(host);
+    this.cachedEnabledState = false;
+    return success;
   }
 
-  public async restartAgy(): Promise<void> {
-    return new Promise((resolve) => {
-      // Use pidof to terminate agy processes cleanly without hanging on D-state
-      const cmd = `for p in $(pidof agy agy.real 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done`;
-      exec(cmd, { timeout: 4000 }, () => {
-        resolve();
-      });
-    });
+  public async restartAgy(targetHost?: string): Promise<void> {
+    const host = targetHost || this.detectRemoteHost();
+    if (!host) {
+      return;
+    }
+
+    const cmd = 'for p in $(pidof agy agy.real 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done';
+    await SshBridge.execRemote(host, cmd, 4000);
   }
 
-  public checkPort(port: number, host = '127.0.0.1', timeout = 1500): Promise<boolean> {
+  /**
+   * Check if proxy port is listening. Runs INSIDE remote container if host is available.
+   */
+  public async checkPort(port: number, host = '127.0.0.1', timeout = 1500): Promise<boolean> {
+    const remoteHost = this.detectRemoteHost();
+    if (remoteHost) {
+      const probeCmd = `if command -v nc >/dev/null 2>&1; then nc -w 1 -z "${host}" "${port}" 2>/dev/null && echo "OPEN" || echo "CLOSED"; else timeout 1 bash -c "cat < /dev/null > /dev/tcp/${host}/${port}" 2>/dev/null && echo "OPEN" || echo "CLOSED"; fi`;
+      const res = await SshBridge.execRemote(remoteHost, probeCmd, timeout + 1000);
+      return res.stdout.includes('OPEN');
+    }
+
+    // Local fallback
     return new Promise((resolve) => {
       const socket = new net.Socket();
       socket.setTimeout(timeout);

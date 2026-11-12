@@ -164,6 +164,7 @@ export class SettingsWebviewPanel {
     const isEnabled = this._controller.isEnabled();
     const proxyHost = this._controller.getProxyHost();
     const proxyPort = this._controller.getProxyPort();
+    const remoteHost = this._controller.detectRemoteHost() || '本地工作区 (未连接远程 SSH)';
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -499,11 +500,16 @@ export class SettingsWebviewPanel {
 <body>
   <div class="container">
     <div class="header">
-      <div class="header-title">
-        <span>⚡ Antigravity 代理与网络中心</span>
-        <span id="headerStatusBadge" class="header-badge ${isEnabled ? 'badge-on' : 'badge-off'}">
-          ${isEnabled ? '● 代理模式已开启' : '○ 纯直连模式'}
-        </span>
+      <div>
+        <div class="header-title">
+          <span>⚡ Antigravity 代理与网络中心</span>
+          <span id="headerStatusBadge" class="header-badge ${isEnabled ? 'badge-on' : 'badge-off'}">
+            ${isEnabled ? '● 代理模式已开启' : '○ 纯直连模式'}
+          </span>
+        </div>
+        <div style="margin-top: 6px; font-size: 11px; opacity: 0.8; font-family: var(--font-mono);">
+          <span>🌐 当前目标主机: <strong>${remoteHost}</strong></span>
+        </div>
       </div>
       <div>
         <button id="toggleBtn" class="btn-secondary" onclick="toggleProxy()">
@@ -551,12 +557,12 @@ export class SettingsWebviewPanel {
     <!-- Diagnostics / Connection Test -->
     <div class="card">
       <div class="card-title">
-        <span>🔍 网络连通性测试</span>
-        <span style="font-size: 11px; font-weight: normal; opacity: 0.7;">全面测试 SSH 隧道与 Google AI 服务</span>
+        <span>🔍 真实网络连通性测试 (Remote Test)</span>
+        <span style="font-size: 11px; font-weight: normal; opacity: 0.7;">远程容器直测：SSH 隧道、Google AI、OAuth 认证</span>
       </div>
 
       <p style="font-size: 12px; opacity: 0.8; margin-bottom: 14px;">
-        点击“连接测试”按钮，将针对当前输入的主机与端口，实时检测 SSH 反向隧道连通性、Google AI (aicode) 接口与遥测服务的 HTTP 状态和毫秒延迟。
+        点击“重新测试”按钮，将在<strong>远程容器内部</strong>实时检测 SSH 反向隧道连通性、Google AI (aicode) 核心接口、遥测服务与 <strong>Google OAuth 账号认证接口</strong>的真实 HTTP 状态和毫秒延迟。
       </p>
 
       <div class="btn-group">
