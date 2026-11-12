@@ -11,33 +11,48 @@ export function activate(context: vscode.ExtensionContext) {
   const diagnostics = new DiagnosticsRunner(controller);
 
   // Auto-setup and auto-tunnel if running in remote environment
-  if (vscode.env.remoteName) {
+  const initRemoteSession = async () => {
+    if (!vscode.env.remoteName) {
+      return;
+    }
     const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
     const autoSetup = config.get<boolean>('autoSetup', true);
-
-    const remoteHost = controller.detectRemoteHost();
-    if (remoteHost && autoSetup) {
-      (async () => {
-        try {
-          await controller.syncStatusFromRemote();
-          const isDeployed = await deployer.isDeployed(remoteHost);
-          if (!isDeployed) {
-            await deployer.deploy(remoteHost);
-          }
-
-          if (controller.isEnabled()) {
-            const port = controller.getProxyPort();
-            await controller.getTunnelManager().startTunnel(remoteHost, port, port);
-            // Brief delay and restart agy so it boots up with proxy
-            await controller.restartAgy(remoteHost);
-          }
-          await statusBar.update();
-        } catch {
-          // Ignore background startup errors
-        }
-      })();
+    if (!autoSetup) {
+      return;
     }
-  }
+
+    const remoteHost = await controller.waitForRemoteHost(12, 500);
+    if (!remoteHost) {
+      return;
+    }
+
+    try {
+      await controller.syncStatusFromRemote();
+      const isDeployed = await deployer.isDeployed(remoteHost);
+      if (!isDeployed) {
+        await deployer.deploy(remoteHost);
+      }
+
+      if (controller.isEnabled()) {
+        const port = controller.getProxyPort();
+        await controller.getTunnelManager().startTunnel(remoteHost, port, port);
+        // Ensure agy process on remote container is reloaded with proxy
+        await controller.restartAgy(remoteHost);
+      }
+      await statusBar.update();
+    } catch {
+      // Ignore background startup errors
+    }
+  };
+
+  initRemoteSession();
+
+  // Also listen for workspace folder attachments
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      initRemoteSession();
+    })
+  );
 
   // Initialize status bar
   statusBar.init(context);

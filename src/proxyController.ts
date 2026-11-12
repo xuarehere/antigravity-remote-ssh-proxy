@@ -23,6 +23,39 @@ export class ProxyController implements vscode.Disposable {
   }
 
   /**
+   * Decode host alias from VS Code Remote-SSH authority.
+   * VS Code Remote-SSH encodes authority as: ssh-remote+<hex-encoded-json> or ssh-remote+<plain-host>
+   */
+  public static parseRemoteHostFromAuthority(rawAuth: string): string | null {
+    if (!rawAuth || !rawAuth.startsWith('ssh-remote+')) {
+      return null;
+    }
+    const payload = rawAuth.substring('ssh-remote+'.length);
+
+    // 1. Check if hex-encoded JSON (VS Code Remote-SSH standard format)
+    if (/^[0-9a-fA-F]+$/.test(payload) && payload.length % 2 === 0) {
+      try {
+        const decoded = Buffer.from(payload, 'hex').toString('utf8');
+        if (decoded.startsWith('{') && decoded.endsWith('}')) {
+          const parsed = JSON.parse(decoded);
+          if (parsed && typeof parsed.hostName === 'string' && parsed.hostName.trim()) {
+            return parsed.hostName.trim();
+          }
+        }
+      } catch {
+        // Fallback to direct decoding
+      }
+    }
+
+    // 2. Fallback to URI-encoded / plain string
+    try {
+      return decodeURIComponent(payload).trim();
+    } catch {
+      return payload.trim();
+    }
+  }
+
+  /**
    * Auto-detect remote host alias from VS Code remote workspace.
    */
   public detectRemoteHost(): string | null {
@@ -30,23 +63,29 @@ export class ProxyController implements vscode.Disposable {
     const folders = vscode.workspace.workspaceFolders;
     if (folders && folders.length > 0) {
       for (const f of folders) {
-        const auth = f.uri.authority;
-        if (auth && auth.startsWith('ssh-remote+')) {
-          return decodeURIComponent(auth.substring('ssh-remote+'.length));
+        const host = ProxyController.parseRemoteHostFromAuthority(f.uri.authority);
+        if (host) {
+          return host;
         }
       }
     }
 
     // 2. Check active text editor document authority
     const editorUri = vscode.window.activeTextEditor?.document.uri;
-    if (editorUri && editorUri.authority && editorUri.authority.startsWith('ssh-remote+')) {
-      return decodeURIComponent(editorUri.authority.substring('ssh-remote+'.length));
+    if (editorUri && editorUri.authority) {
+      const host = ProxyController.parseRemoteHostFromAuthority(editorUri.authority);
+      if (host) {
+        return host;
+      }
     }
 
     // 3. Check workspace file authority
     const wsFile = vscode.workspace.workspaceFile;
-    if (wsFile && wsFile.authority && wsFile.authority.startsWith('ssh-remote+')) {
-      return decodeURIComponent(wsFile.authority.substring('ssh-remote+'.length));
+    if (wsFile && wsFile.authority) {
+      const host = ProxyController.parseRemoteHostFromAuthority(wsFile.authority);
+      if (host) {
+        return host;
+      }
     }
 
     // 4. Fallback to user-configured remote host
@@ -56,6 +95,20 @@ export class ProxyController implements vscode.Disposable {
       return configured;
     }
 
+    return null;
+  }
+
+  /**
+   * Async helper that polls for remote host resolution during IDE startup.
+   */
+  public async waitForRemoteHost(maxAttempts = 10, delayMs = 500): Promise<string | null> {
+    for (let i = 0; i < maxAttempts; i++) {
+      const host = this.detectRemoteHost();
+      if (host) {
+        return host;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
     return null;
   }
 
