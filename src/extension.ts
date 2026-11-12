@@ -130,7 +130,17 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('Antigravity 远端代理组件已成功部署！');
         await statusBar.update();
       }
-    })
+    }),
+
+    vscode.commands.registerCommand('antigravityRemoteProxy.restore', async () => {
+      const ok = await controller.restoreRemote();
+      if (ok) {
+        vscode.window.showInformationMessage('远程环境已 100% 彻底复原为初始纯净状态！');
+        await statusBar.update();
+      }
+    }),
+
+    controller
   );
 }
 

@@ -99,6 +99,24 @@ export class SettingsWebviewPanel {
             }
             break;
           }
+          case 'restoreRemote': {
+            const ok = await this._controller.restoreRemote();
+            if (ok) {
+              vscode.window.showInformationMessage('远程环境已 100% 彻底复原为原生初始状态！');
+              this.postMessage({
+                type: 'restoreResult',
+                success: true,
+                message: '远程环境已彻底复原为初始原生状态，所有代理包装与组件已完全清除。'
+              });
+            } else {
+              this.postMessage({
+                type: 'restoreResult',
+                success: false,
+                message: '复原远程环境失败，请查看日志。'
+              });
+            }
+            break;
+          }
           case 'refresh': {
             this.refresh();
             break;
@@ -552,6 +570,26 @@ export class SettingsWebviewPanel {
         <div id="diagSummary" class="diag-summary"></div>
       </div>
     </div>
+
+    <!-- Environment Restore Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>🛡️ 远程环境无损与复原</span>
+        <span style="font-size: 11px; font-weight: normal; opacity: 0.7;">100% 物理隔离 · 零残留保证</span>
+      </div>
+
+      <p style="font-size: 12px; opacity: 0.8; margin-bottom: 14px;">
+        本插件绝不修改任何本地 SSH 配置文件，也绝不污染远程系统的 bashrc 或系统全局文件。若您希望彻底清除远端所有代理包装器并使远端完全恢复至未安装插件的初始状态，可点击下方按钮。
+      </p>
+
+      <div class="btn-group">
+        <button id="restoreBtn" class="btn-secondary" style="color: #f14c4c; border: 1px solid #f14c4c;" onclick="restoreRemoteEnvironment()">
+          <span>🔄 一键彻底复原远程环境 (Clean Restore)</span>
+        </button>
+      </div>
+
+      <div id="restoreStatusMsg" class="status-msg"></div>
+    </div>
   </div>
 
   <script>
@@ -603,6 +641,16 @@ export class SettingsWebviewPanel {
         command: 'testConnection',
         host: host,
         port: port
+      });
+    }
+
+    function restoreRemoteEnvironment() {
+      const restoreBtn = document.getElementById('restoreBtn');
+      restoreBtn.disabled = true;
+      restoreBtn.innerHTML = '<span class="spinner"></span> 正在复原远端环境...';
+
+      vscode.postMessage({
+        command: 'restoreRemote'
       });
     }
 
@@ -661,6 +709,21 @@ export class SettingsWebviewPanel {
           diagItems.innerHTML = '';
           diagSummary.className = 'diag-summary error';
           diagSummary.innerText = '测试失败: ' + msg.error;
+          break;
+        }
+
+        case 'restoreResult': {
+          const restoreBtn = document.getElementById('restoreBtn');
+          restoreBtn.disabled = false;
+          restoreBtn.innerHTML = '<span>🔄 一键彻底复原远程环境 (Clean Restore)</span>';
+
+          const msgEl = document.getElementById('restoreStatusMsg');
+          msgEl.className = 'status-msg show ' + (msg.success ? 'success' : 'error');
+          msgEl.innerText = msg.message;
+
+          setTimeout(() => {
+            msgEl.className = 'status-msg';
+          }, 5000);
           break;
         }
       }

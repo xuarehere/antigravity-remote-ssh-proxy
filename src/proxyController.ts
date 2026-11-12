@@ -4,16 +4,30 @@ import * as os from 'os';
 import * as net from 'net';
 import { exec } from 'child_process';
 import * as vscode from 'vscode';
+import { TunnelManager } from './tunnelManager';
 
-export class ProxyController {
+export class ProxyController implements vscode.Disposable {
   private serverDir: string;
   private disabledFlagPath: string;
   private confFilePath: string;
+  private geminiBinDir: string;
+  private agyPath: string;
+  private agyRealPath: string;
+  private tunnelManager: TunnelManager;
 
   constructor() {
-    this.serverDir = path.join(os.homedir(), '.antigravity-ide-server');
+    const homeDir = os.homedir();
+    this.serverDir = path.join(homeDir, '.antigravity-ide-server');
     this.disabledFlagPath = path.join(this.serverDir, 'proxy.disabled');
     this.confFilePath = path.join(this.serverDir, 'proxy.conf');
+    this.geminiBinDir = path.join(homeDir, '.gemini', 'bin');
+    this.agyPath = path.join(this.geminiBinDir, 'agy');
+    this.agyRealPath = path.join(this.geminiBinDir, 'agy.real');
+    this.tunnelManager = new TunnelManager();
+  }
+
+  public getTunnelManager(): TunnelManager {
+    return this.tunnelManager;
   }
 
   public getProxyHost(): string {
@@ -70,6 +84,20 @@ export class ProxyController {
       if (fs.existsSync(this.disabledFlagPath)) {
         fs.unlinkSync(this.disabledFlagPath);
       }
+
+      // Check if tunnel is needed
+      const port = this.getProxyPort();
+      const host = this.getProxyHost();
+      const isListening = await this.checkPort(port, host, 1000);
+      if (!isListening) {
+        // Attempt dynamic background tunnel if remoteHost configured
+        const config = vscode.workspace.getConfiguration('antigravityRemoteProxy');
+        const remoteHost = config.get<string>('remoteHost', '');
+        if (remoteHost) {
+          await this.tunnelManager.startTunnel(remoteHost, port);
+        }
+      }
+
       await this.restartAgy();
     } catch (err: any) {
       vscode.window.showErrorMessage(`开启代理失败: ${err.message}`);
@@ -82,6 +110,10 @@ export class ProxyController {
         fs.mkdirSync(this.serverDir, { recursive: true });
       }
       fs.writeFileSync(this.disabledFlagPath, '');
+
+      // Stop dynamic tunnel if active
+      this.tunnelManager.stopTunnel();
+
       await this.restartAgy();
     } catch (err: any) {
       vscode.window.showErrorMessage(`关闭代理失败: ${err.message}`);
@@ -115,29 +147,47 @@ export class ProxyController {
       const confContent = `PROXY_HOST="${trimmedHost}"\nPROXY_PORT="${portNum}"\n`;
       fs.writeFileSync(this.confFilePath, confContent, 'utf8');
     } catch (err: any) {
-      vscode.window.showWarningMessage(`写入本地配置文件失败: ${err.message}`);
+      vscode.window.showWarningMessage(`写入配置文件失败: ${err.message}`);
     }
 
-    // 3. If running on local Windows, sync to remote via SSH if remoteHost configured
-    if (!vscode.env.remoteName && os.platform() === 'win32') {
-      const remoteHost = config.get<string>('remoteHost', '10.192.41.183-zbz-3090');
-      if (remoteHost) {
-        await this.syncToRemoteSsh(remoteHost, trimmedHost, portNum);
-      }
-    }
-
-    // 4. Restart agy process
+    // 3. Restart agy process
     await this.restartAgy();
   }
 
-  private syncToRemoteSsh(remoteHost: string, host: string, port: number): Promise<void> {
-    return new Promise((resolve) => {
-      const script = `mkdir -p ~/.antigravity-ide-server && printf 'PROXY_HOST="%s"\\nPROXY_PORT="%s"\\n' '${host}' '${port}' > ~/.antigravity-ide-server/proxy.conf && for p in $(pidof agy agy.real 2>/dev/null); do kill -9 $p 2>/dev/null || true; done`;
-      const cmd = `ssh -n ${remoteHost} "${script}"`;
-      exec(cmd, { timeout: 6000 }, () => {
-        resolve();
-      });
-    });
+  public async restoreRemote(): Promise<boolean> {
+    try {
+      // 1. Stop dynamic tunnel
+      this.tunnelManager.stopTunnel();
+
+      // 2. If agy.real exists, restore it back to agy
+      if (fs.existsSync(this.agyRealPath)) {
+        if (fs.existsSync(this.agyPath)) {
+          fs.unlinkSync(this.agyPath);
+        }
+        fs.renameSync(this.agyRealPath, this.agyPath);
+      }
+
+      // 3. Remove proxy.disabled and proxy.conf
+      if (fs.existsSync(this.disabledFlagPath)) {
+        fs.unlinkSync(this.disabledFlagPath);
+      }
+      if (fs.existsSync(this.confFilePath)) {
+        fs.unlinkSync(this.confFilePath);
+      }
+
+      // 4. Remove agy-proxy if exists
+      const agyProxy = path.join(this.serverDir, 'bin', 'agy-proxy');
+      if (fs.existsSync(agyProxy)) {
+        fs.unlinkSync(agyProxy);
+      }
+
+      // 5. Restart agy so it runs completely original binary
+      await this.restartAgy();
+      return true;
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`完全复原远程环境失败: ${err.message}`);
+      return false;
+    }
   }
 
   public async restartAgy(): Promise<void> {
@@ -172,5 +222,9 @@ export class ProxyController {
 
       socket.connect(port, host);
     });
+  }
+
+  public dispose(): void {
+    this.tunnelManager.dispose();
   }
 }
